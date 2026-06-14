@@ -1,21 +1,10 @@
 #!/usr/bin/env python3
 """
-Apply Child-Care Thrive branding to a KoboCollect source checkout.
+Apply Child-Care Thrive branding to a fresh KoboCollect source checkout.
 
-Run from the root of a freshly cloned KoboCollect repository:
-
-    python3 /path/to/apply_child_care_thrive_branding.py
-
-What this patches:
-- Android applicationId/package identity
-- APK base name
-- launcher/app labels
-- exposed provider authorities
-- external shortcut label
-- splash/launcher placeholder assets
-- optional real branding assets from ../branding or ./branding
-
-This deliberately does not change KoboCollect's core data-collection engine.
+This is a source-level rebrand patch. It changes Android package/app identity,
+labels, launcher/splash resources and exposed provider authorities, but it does
+not rewrite the ODK/KoboCollect collection engine.
 """
 
 from __future__ import annotations
@@ -28,7 +17,6 @@ APP_NAME = "Child-Care Thrive"
 PACKAGE_ID = "za.co.childcarethrive.collect"
 BRAND_LINE = "Child-Care Thrive powered by HIV Survivors & Partners Network"
 APK_BASENAME = "Child-Care-Thrive-Collect"
-
 
 VECTOR_LOGO = """<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -61,8 +49,6 @@ ADAPTIVE_ICON = """<?xml version="1.0" encoding="utf-8"?>
 </adaptive-icon>
 """
 
-ROUND_ICON = ADAPTIVE_ICON
-
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -73,45 +59,23 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def patch_text_file(path: Path, transforms: list[tuple[str, str]]) -> None:
+def replace_if_exists(path: Path, replacements: list[tuple[str, str]]) -> None:
     if not path.exists():
         print(f"skip missing {path}")
         return
-
     text = read_text(path)
     original = text
-    for old, new in transforms:
+    for old, new in replacements:
         text = text.replace(old, new)
-
     if text != original:
         write_text(path, text)
         print(f"patched {path}")
-    else:
-        print(f"no changes needed {path}")
-
-
-def regex_replace_file(path: Path, patterns: list[tuple[str, str]]) -> None:
-    if not path.exists():
-        print(f"skip missing {path}")
-        return
-
-    text = read_text(path)
-    original = text
-    for pattern, replacement in patterns:
-        text = re.sub(pattern, replacement, text, flags=re.DOTALL)
-
-    if text != original:
-        write_text(path, text)
-        print(f"patched {path}")
-    else:
-        print(f"no regex changes needed {path}")
 
 
 def ensure_secrets(root: Path) -> None:
-    secrets_gradle = root / "secrets.gradle"
-    if not secrets_gradle.exists():
+    if not (root / "secrets.gradle").exists():
         write_text(
-            secrets_gradle,
+            root / "secrets.gradle",
             """import java.util.Properties
 
 ext.getSecrets = { ->
@@ -126,10 +90,9 @@ ext.getSecrets = { ->
         )
         print("created secrets.gradle")
 
-    secrets_properties = root / "secrets.properties"
-    if not secrets_properties.exists():
+    if not (root / "secrets.properties").exists():
         write_text(
-            secrets_properties,
+            root / "secrets.properties",
             """GOOGLE_MAPS_API_KEY=
 MAPBOX_ACCESS_TOKEN=
 MAPBOX_DOWNLOADS_TOKEN=
@@ -151,24 +114,22 @@ def patch_build_gradle(root: Path) -> None:
     text = re.sub(r"applicationId\(['\"][^'\"]+['\"]\)", f"applicationId('{PACKAGE_ID}')", text)
     text = text.replace("archivesBaseName = 'ODK-Collect'", f"archivesBaseName = '{APK_BASENAME}'")
 
-    # The upstream build applies Google services / Crashlytics at the bottom. A fork build without
-    # official google-services.json should not fail because of missing Google/Firebase config.
+    # Avoid build failure in fork builds without Google/Firebase config.
     text = text.replace(
         "apply plugin: 'com.google.gms.google-services'",
-        "// Child-Care Thrive fork: google-services disabled for unsigned/test fork build",
+        "// Child-Care Thrive fork: google-services disabled for self-contained fork build",
     )
     text = text.replace(
         "apply plugin: 'com.google.firebase.crashlytics'",
-        "// Child-Care Thrive fork: crashlytics disabled for unsigned/test fork build",
+        "// Child-Care Thrive fork: crashlytics disabled for self-contained fork build",
     )
-
     write_text(build_gradle, text)
     print("patched collect_app/build.gradle")
 
 
 def patch_manifest(root: Path) -> None:
     manifest = root / "collect_app" / "src" / "main" / "AndroidManifest.xml"
-    patch_text_file(
+    replace_if_exists(
         manifest,
         [
             ("org.koboc.collect.android.provider.odk.forms", f"{PACKAGE_ID}.provider.odk.forms"),
@@ -179,33 +140,47 @@ def patch_manifest(root: Path) -> None:
 
 
 def patch_strings(root: Path) -> None:
-    strings_file = root / "strings" / "src" / "main" / "res" / "values" / "strings.xml"
-    if strings_file.exists():
-        text = read_text(strings_file)
-        original = text
+    """Patch existing label resources without creating duplicate string names.
 
-        if 'name="collect_app_name"' in text:
-            text = re.sub(
-                r"<string name=\"collect_app_name\">.*?</string>",
-                f"<string name=\"collect_app_name\">{APP_NAME}</string>",
-                text,
-            )
-        else:
-            text = text.replace("</resources>", f"    <string name=\"collect_app_name\">{APP_NAME}</string>\n</resources>")
+    Upstream currently defines collect_app_name in values/untranslated.xml. Older
+    versions of this script added another collect_app_name to values/strings.xml,
+    which caused :strings:packageDebugResources to fail with Duplicate resources.
+    This version only replaces existing definitions and creates no duplicate
+    collect_app_name resource.
+    """
+    values_dirs = [root / "strings" / "src" / "main" / "res" / "values"]
+    patched_collect_name = False
 
-        text = text.replace("KoboCollect", APP_NAME)
-        text = text.replace("Kobo Collect", APP_NAME)
-        text = text.replace("ODK Collect", APP_NAME)
+    for values_dir in values_dirs:
+        if not values_dir.exists():
+            continue
+        for xml in values_dir.glob("*.xml"):
+            text = read_text(xml)
+            original = text
 
-        if text != original:
-            write_text(strings_file, text)
-            print("patched strings module labels")
-        else:
-            print("strings module labels already patched")
+            if 'name="collect_app_name"' in text:
+                text = re.sub(
+                    r"<string\s+name=\"collect_app_name\"[^>]*>.*?</string>",
+                    f"<string name=\"collect_app_name\">{APP_NAME}</string>",
+                    text,
+                    flags=re.DOTALL,
+                )
+                patched_collect_name = True
 
-    override_dir = root / "collect_app" / "src" / "main" / "res" / "values"
+            text = text.replace("KoboCollect", APP_NAME)
+            text = text.replace("Kobo Collect", APP_NAME)
+            text = text.replace("ODK Collect", APP_NAME)
+
+            if text != original:
+                write_text(xml, text)
+                print(f"patched string resources in {xml}")
+
+    if not patched_collect_name:
+        print("warning: collect_app_name was not found in strings resources; app module label override will be used")
+
+    # App-module strings must not duplicate collect_app_name from the strings module.
     write_text(
-        override_dir / "child_care_thrive_strings.xml",
+        root / "collect_app" / "src" / "main" / "res" / "values" / "child_care_thrive_strings.xml",
         f"""<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="child_care_thrive_brand_line">{BRAND_LINE}</string>
@@ -216,17 +191,11 @@ def patch_strings(root: Path) -> None:
 
 
 def find_branding_asset(root: Path, file_names: list[str]) -> Path | None:
-    candidate_dirs = [
-        root / "branding",
-        root.parent / "branding",
-        Path.cwd() / "branding",
-    ]
-
-    for folder in candidate_dirs:
+    for folder in [root / "branding", root.parent / "branding", Path.cwd() / "branding"]:
         for name in file_names:
-            path = folder / name
-            if path.exists():
-                return path
+            candidate = folder / name
+            if candidate.exists():
+                return candidate
     return None
 
 
@@ -235,8 +204,21 @@ def write_launcher_and_splash_assets(root: Path) -> None:
     drawable = res / "drawable"
     drawable.mkdir(parents=True, exist_ok=True)
 
-    icon_asset = find_branding_asset(root, ["child_care_icon.png", "icon.png", "launcher.png"])
-    splash_asset = find_branding_asset(root, ["child_care_splash.png", "splash.png", "child_care_splash.jpg", "splash.jpg"])
+    icon_asset = find_branding_asset(root, [
+        "child_care_icon.png",
+        "child_care_logo.png",
+        "logo.png",
+        "icon.png",
+        "launcher.png",
+    ])
+    splash_asset = find_branding_asset(root, [
+        "child_care_splash.png",
+        "child_care_banner.png",
+        "splash.png",
+        "banner.png",
+        "child_care_splash.jpg",
+        "splash.jpg",
+    ])
 
     if icon_asset:
         shutil.copyfile(icon_asset, drawable / "child_care_thrive_logo.png")
@@ -247,8 +229,7 @@ def write_launcher_and_splash_assets(root: Path) -> None:
 
     if splash_asset:
         suffix = splash_asset.suffix.lower()
-        target = drawable / f"child_care_thrive_splash{suffix}"
-        shutil.copyfile(splash_asset, target)
+        shutil.copyfile(splash_asset, drawable / f"child_care_thrive_splash{suffix}")
         print(f"copied real splash asset from {splash_asset}")
     else:
         write_text(drawable / "child_care_thrive_splash.xml", SPLASH_LAYER_LIST)
@@ -257,8 +238,7 @@ def write_launcher_and_splash_assets(root: Path) -> None:
     for folder in res.glob("mipmap-*"):
         if folder.is_dir():
             write_text(folder / "ic_launcher.xml", ADAPTIVE_ICON)
-            write_text(folder / "ic_launcher_round.xml", ROUND_ICON)
-
+            write_text(folder / "ic_launcher_round.xml", ADAPTIVE_ICON)
     print("wrote launcher adaptive icon XML files")
 
 
@@ -269,10 +249,8 @@ def patch_splash_themes(root: Path) -> None:
             text = read_text(xml)
         except UnicodeDecodeError:
             continue
-
         if "windowSplashScreen" not in text:
             continue
-
         original = text
         text = re.sub(
             r"<item name=\"windowSplashScreenAnimatedIcon\">.*?</item>",
@@ -286,7 +264,6 @@ def patch_splash_themes(root: Path) -> None:
             text,
             flags=re.DOTALL,
         )
-
         if text != original:
             write_text(xml, text)
             print(f"patched splash theme {xml}")
@@ -304,10 +281,10 @@ def write_branding_summary(root: Path) -> None:
 
 Notes:
 
-- KoboCollect/ODK Collect core collection logic has not been rewritten.
+- ODK/KoboCollect core collection logic has not been rewritten.
 - This is a source-level Android build patch, not a compiled APK binary patch.
 - If real assets are supplied under `branding/`, the script copies them into Android resources.
-- Without real assets, the script creates simple placeholder launcher/splash assets so the build can proceed.
+- Without real assets, the script creates placeholder launcher/splash assets so the build can proceed.
 """,
     )
 
@@ -324,7 +301,6 @@ def main() -> None:
     write_launcher_and_splash_assets(root)
     patch_splash_themes(root)
     write_branding_summary(root)
-
     print("Child-Care Thrive branding patch complete")
 
 
