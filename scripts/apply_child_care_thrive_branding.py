@@ -22,7 +22,7 @@ PLACEHOLDER_LOGO = """<?xml version="1.0" encoding="utf-8"?>
 </vector>
 """
 
-PLACEHOLDER_SPLASH = """<?xml version="1.0" encoding="utf-8"?>
+DEFAULT_SPLASH_BACKGROUND = """<?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
     <item android:gravity="center" android:width="216dp" android:height="216dp" android:drawable="@drawable/child_care_thrive_logo" />
@@ -171,13 +171,39 @@ def remove_launcher_xml_collisions(root: Path) -> None:
                     print(f"removed duplicate launcher XML {p}")
 
 
+def copy_drawable(src: Path, drawable_dir: Path, stem: str) -> str:
+    suffix = src.suffix.lower()
+    if suffix == ".jpeg":
+        suffix = ".jpg"
+    if suffix not in {".png", ".jpg", ".xml"}:
+        raise SystemExit(f"Unsupported branding asset type: {src}")
+    target = drawable_dir / f"{stem}{suffix}"
+    shutil.copyfile(src, target)
+    print(f"copied {src} to {target}")
+    return f"@drawable/{stem}"
+
+
+def write_splash_background(drawable_dir: Path, splash_ref: str) -> None:
+    if splash_ref.endswith("_splash"):
+        body = f"""<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/white" />
+    <item>
+        <bitmap android:src="{splash_ref}" android:gravity="fill" />
+    </item>
+</layer-list>
+"""
+    else:
+        body = DEFAULT_SPLASH_BACKGROUND
+    write_text(drawable_dir / "child_care_thrive_splash_background.xml", body)
+
+
 def write_assets(root: Path) -> None:
-    res = root / "collect_app" / "src" / "main" / "res"
-    drawable = res / "drawable"
+    drawable = root / "collect_app" / "src" / "main" / "res" / "drawable"
     drawable.mkdir(parents=True, exist_ok=True)
 
-    icon = find_asset(root, ["child_care_icon.png", "child_care_logo.png", "logo.png", "icon.png", "launcher.png"])
-    splash = find_asset(root, ["child_care_splash.png", "child_care_banner.png", "splash.png", "banner.png", "child_care_splash.jpg", "splash.jpg"])
+    icon = find_asset(root, ["child_care_icon.png", "child_care_icon.xml", "child_care_logo.png", "child_care_logo.xml", "logo.png", "logo.xml", "icon.png", "icon.xml", "launcher.png"])
+    splash = find_asset(root, ["child_care_splash.png", "child_care_splash.jpg", "child_care_splash.xml", "child_care_banner.png", "splash.png", "splash.jpg", "banner.png"])
 
     if REQUIRE_BRANDING_ASSETS and not icon:
         raise SystemExit("Missing branding icon. Add branding/child_care_icon.png before building.")
@@ -185,38 +211,36 @@ def write_assets(root: Path) -> None:
         raise SystemExit("Missing branding splash. Add branding/child_care_splash.png before building.")
 
     if icon:
-        shutil.copyfile(icon, drawable / "child_care_thrive_logo.png")
-        print(f"copied real icon asset from {icon}")
+        copy_drawable(icon, drawable, "child_care_thrive_logo")
     else:
         write_text(drawable / "child_care_thrive_logo.xml", PLACEHOLDER_LOGO)
-        print("created placeholder icon asset")
 
     if splash:
-        suffix = splash.suffix.lower()
-        shutil.copyfile(splash, drawable / f"child_care_thrive_splash{suffix}")
-        print(f"copied real splash asset from {splash}")
+        splash_ref = copy_drawable(splash, drawable, "child_care_thrive_splash")
     else:
-        write_text(drawable / "child_care_thrive_splash.xml", PLACEHOLDER_SPLASH)
-        print("created placeholder splash asset")
+        write_text(drawable / "child_care_thrive_splash.xml", DEFAULT_SPLASH_BACKGROUND)
+        splash_ref = "@drawable/child_care_thrive_splash"
 
+    write_splash_background(drawable, splash_ref)
     remove_launcher_xml_collisions(root)
 
 
-def patch_splash(root: Path) -> None:
+def patch_splash_and_background(root: Path) -> None:
     res = root / "collect_app" / "src" / "main" / "res"
     for path in res.rglob("*.xml"):
         try:
             text = read_text(path)
         except UnicodeDecodeError:
             continue
-        if "windowSplashScreen" not in text:
-            continue
         original = text
-        text = re.sub(r"<item name=\"windowSplashScreenAnimatedIcon\">.*?</item>", "<item name=\"windowSplashScreenAnimatedIcon\">@drawable/child_care_thrive_logo</item>", text, flags=re.DOTALL)
-        text = re.sub(r"<item name=\"windowSplashScreenBackground\">.*?</item>", "<item name=\"windowSplashScreenBackground\">@android:color/white</item>", text, flags=re.DOTALL)
+        if "windowSplashScreen" in text:
+            text = re.sub(r"<item name=\"windowSplashScreenAnimatedIcon\">.*?</item>", "<item name=\"windowSplashScreenAnimatedIcon\">@drawable/child_care_thrive_logo</item>", text, flags=re.DOTALL)
+            text = re.sub(r"<item name=\"windowSplashScreenBackground\">.*?</item>", "<item name=\"windowSplashScreenBackground\">@drawable/child_care_thrive_splash_background</item>", text, flags=re.DOTALL)
+        if "<style name=\"Theme.Collect\"" in text:
+            text = text.replace("<item name=\"android:colorBackground\">@color/colorSurface</item>", "<item name=\"android:colorBackground\">@color/colorSurface</item>\n        <item name=\"android:windowBackground\">@drawable/child_care_thrive_splash_background</item>")
         if text != original:
             write_text(path, text)
-            print(f"patched splash theme {path}")
+            print(f"patched splash/background theme {path}")
 
 
 def verify(root: Path) -> None:
@@ -227,11 +251,13 @@ def verify(root: Path) -> None:
 - Package ID: `{PACKAGE_ID}`
 - Brand line: {BRAND_LINE}
 - APK base name: `{APK_BASENAME}`
-- Real branding assets required: {REQUIRE_BRANDING_ASSETS}
+- Startup/background drawable: `@drawable/child_care_thrive_splash_background`
 """)
-    for required in [root / "collect_app/src/main/res/drawable/child_care_thrive_logo.png"]:
-        if REQUIRE_BRANDING_ASSETS and not required.exists():
-            raise SystemExit(f"Expected branded resource was not created: {required}")
+    drawable = root / "collect_app" / "src" / "main" / "res" / "drawable"
+    if not any((drawable / f"child_care_thrive_logo{ext}").exists() for ext in [".png", ".jpg", ".xml"]):
+        raise SystemExit("Expected branded launcher resource was not created")
+    if not (drawable / "child_care_thrive_splash_background.xml").exists():
+        raise SystemExit("Expected branded splash background was not created")
 
 
 def main() -> None:
@@ -243,7 +269,7 @@ def main() -> None:
     write_assets(root)
     patch_manifest(root)
     patch_strings(root)
-    patch_splash(root)
+    patch_splash_and_background(root)
     verify(root)
     print("Child-Care Thrive branding patch complete")
 
