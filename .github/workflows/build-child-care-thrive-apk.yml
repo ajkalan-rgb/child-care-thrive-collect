@@ -1,0 +1,65 @@
+name: Build Child-Care Thrive APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  KOBOCOLLECT_REPO: https://github.com/kobotoolbox/collect.git
+  KOBOCOLLECT_REF: master
+
+jobs:
+  build:
+    name: Build branded ODK/KoboCollect APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout Child-Care Thrive wrapper
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Clone KoboCollect source
+        run: |
+          git clone --depth 1 --branch "$KOBOCOLLECT_REF" "$KOBOCOLLECT_REPO" upstream-collect
+
+      - name: Apply Child-Care Thrive branding patch
+        run: |
+          cp scripts/apply_child_care_thrive_branding.py upstream-collect/apply_child_care_thrive_branding.py
+          if [ -d branding ]; then cp -R branding upstream-collect/branding; fi
+          cd upstream-collect
+          python3 apply_child_care_thrive_branding.py
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x upstream-collect/gradlew
+
+      - name: Build self-signed release APK
+        working-directory: upstream-collect
+        run: |
+          ./gradlew :collect_app:assembleSelfSignedRelease --stacktrace --no-daemon
+
+      - name: Collect APK outputs
+        if: always()
+        run: |
+          mkdir -p apk-output
+          find upstream-collect/collect_app/build/outputs/apk -type f -name '*.apk' -print -exec cp {} apk-output/ \; || true
+          ls -la apk-output || true
+
+      - name: Upload APK artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: child-care-thrive-apk
+          path: apk-output/*.apk
+          if-no-files-found: warn
+          retention-days: 14
