@@ -141,11 +141,11 @@ def patch_assets(root: Path) -> None:
     d.mkdir(parents=True, exist_ok=True)
     icon = find_asset(root, ["child_care_icon.png", "child_care_icon.xml", "child_care_logo.png", "logo.png", "icon.png"])
     app_bg = find_asset(root, ["child_care_splash.png", "child_care_splash.jpg", "child_care_splash.xml", "child_care_banner.png", "splash.png", "splash.jpg", "banner.png"])
-    startup = find_asset(root, ["chil_thrie_startup.png", "chil_thrive_startup.png", "child_thrie_startup.png", "child_thrive_startup.png", "child_care_startup.png", "startup.png", "startup_screen.png"])
+    startup = find_asset(root, ["child_care_startup.png", "startup.png", "startup_screen.png", "child_thrive_startup.png", "child_thrie_startup.png", "chil_thrive_startup.png", "chil_thrie_startup.png"])
     if REQUIRE_ASSETS and not icon:
         raise SystemExit("Missing branding/child_care_icon.png")
     if REQUIRE_ASSETS and not startup:
-        raise SystemExit("Missing startup image. Add branding/chil_thrie_startup.png or branding/chil_thrive_startup.png")
+        raise SystemExit("Missing branding/child_care_startup.png")
     logo_ref = copy_asset(icon, d, "child_care_thrive_logo") if icon else None
     if not logo_ref:
         put(d / "child_care_thrive_logo.xml", LOGO_XML)
@@ -195,21 +195,14 @@ def patch_themes(root: Path) -> None:
             put(p, s)
 
 
-def add_attr_to_opening_tag(xml: str, tag: str, attr: str) -> str:
-    pattern = rf"(<{re.escape(tag)}\b[^>]*)(>)"
-    def repl(m: re.Match[str]) -> str:
-        if attr.split("=")[0] in m.group(1):
-            return m.group(0)
-        return m.group(1) + "\n    " + attr + m.group(2)
-    return re.sub(pattern, repl, xml, count=1, flags=re.DOTALL)
-
-
 def hide_textview_by_id(xml: str, view_id: str) -> str:
     pattern = rf"(<TextView\b(?=[^>]*android:id=\"@\+id/{re.escape(view_id)}\")[^>]*)(/>)"
     def repl(m: re.Match[str]) -> str:
         block = m.group(1)
         if "android:visibility=" not in block:
             block += '\n                android:visibility="gone"'
+        if "android:layout_height=" in block:
+            block = re.sub(r'android:layout_height="[^"]+"', 'android:layout_height="0dp"', block)
         return block + m.group(2)
     return re.sub(pattern, repl, xml, flags=re.DOTALL)
 
@@ -233,7 +226,6 @@ def patch_layouts(root: Path) -> None:
         s = hide_textview_by_id(s, "app_name")
         s = hide_textview_by_id(s, "version_sha")
         s = s.replace('android:paddingBottom="@dimen/margin_standard"', 'android:paddingBottom="0dp"')
-        s = s.replace('android:layout_marginTop="@dimen/margin_standard"', 'android:layout_marginTop="2dp"')
         put(main_menu, s)
 
     compact_replacements = [
@@ -262,7 +254,7 @@ def main() -> None:
     patch_strings(root)
     patch_themes(root)
     patch_layouts(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses chil_thrie_startup/chil_thrive_startup. App background uses child_care_splash. Main-menu version text is hidden. Buttons are compact.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Main-menu app/version text is hidden. Buttons are compact.\n")
     print("Child-Care Thrive branding patch complete")
 
 
