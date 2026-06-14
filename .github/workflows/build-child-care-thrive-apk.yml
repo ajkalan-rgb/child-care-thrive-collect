@@ -13,6 +13,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   KOBOCOLLECT_REPO: https://github.com/kobotoolbox/collect.git
   KOBOCOLLECT_REF: master
+  REQUIRE_BRANDING_ASSETS: true
 
 jobs:
   build:
@@ -30,12 +31,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Show wrapper repo files
+      - name: Verify required branding assets
         run: |
           echo "Wrapper repository contents:"
           find . -maxdepth 3 -type f | sort
-          echo "Branding folder contents, if present:"
+          echo "Branding folder contents:"
           find branding -maxdepth 2 -type f -print 2>/dev/null || true
+          test -f branding/child_care_icon.png || (echo "ERROR: Missing branding/child_care_icon.png" && exit 1)
+          test -f branding/child_care_splash.png || (echo "ERROR: Missing branding/child_care_splash.png" && exit 1)
 
       - name: Clone KoboCollect source
         run: |
@@ -44,11 +47,13 @@ jobs:
       - name: Apply Child-Care Thrive branding patch
         run: |
           cp scripts/apply_child_care_thrive_branding.py upstream-collect/apply_child_care_thrive_branding.py
-          if [ -d branding ]; then cp -R branding upstream-collect/branding; fi
+          cp -R branding upstream-collect/branding
           cd upstream-collect
           python3 apply_child_care_thrive_branding.py
           echo "Generated/brand Android resources:"
           find collect_app/src/main/res -type f \( -name '*child_care*' -o -name 'ic_launcher*' \) | sort | head -200
+          echo "Remaining Kobo/ODK labels after patch, for review only:"
+          grep -R "KoboCollect\|Kobo Collect\|ODK Collect" strings/src/main/res collect_app/src/main/res -n | head -50 || true
 
       - name: Make Gradle wrapper executable
         run: chmod +x upstream-collect/gradlew
