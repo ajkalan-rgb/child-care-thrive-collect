@@ -43,13 +43,6 @@ SPLASH_LAYER_LIST = """<?xml version="1.0" encoding="utf-8"?>
 </layer-list>
 """
 
-ADAPTIVE_ICON = """<?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@android:color/white" />
-    <foreground android:drawable="@drawable/child_care_thrive_logo" />
-</adaptive-icon>
-"""
-
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -68,6 +61,19 @@ def replace_if_exists(path: Path, replacements: list[tuple[str, str]]) -> None:
     original = text
     for old, new in replacements:
         text = text.replace(old, new)
+    if text != original:
+        write_text(path, text)
+        print(f"patched {path}")
+
+
+def regex_replace_if_exists(path: Path, replacements: list[tuple[str, str]]) -> None:
+    if not path.exists():
+        print(f"skip missing {path}")
+        return
+    text = read_text(path)
+    original = text
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.DOTALL)
     if text != original:
         write_text(path, text)
         print(f"patched {path}")
@@ -138,6 +144,13 @@ def patch_manifest(root: Path) -> None:
             ("android:label=\"ODK Form\"", f"android:label=\"{APP_NAME} Form\""),
         ],
     )
+    regex_replace_if_exists(
+        manifest,
+        [
+            (r"android:icon=\"@mipmap/ic_launcher\"", "android:icon=\"@drawable/child_care_thrive_logo\""),
+            (r"android:roundIcon=\"@mipmap/ic_launcher_round\"", "android:roundIcon=\"@drawable/child_care_thrive_logo\""),
+        ],
+    )
 
 
 def patch_strings(root: Path) -> None:
@@ -194,6 +207,25 @@ def find_branding_asset(root: Path, file_names: list[str]) -> Path | None:
     return None
 
 
+def remove_old_generated_launcher_xml(root: Path) -> None:
+    """Remove generated XML launcher files that collide with upstream .webp icons.
+
+    Android treats ic_launcher.webp and ic_launcher.xml in the same mipmap density
+    as the same resource name. Older versions of this patch wrote XML files there,
+    which caused duplicate resource failures. We now point the manifest directly
+    at @drawable/child_care_thrive_logo instead.
+    """
+    res = root / "collect_app" / "src" / "main" / "res"
+    for folder in res.glob("mipmap-*"):
+        if not folder.is_dir():
+            continue
+        for name in ["ic_launcher.xml", "ic_launcher_round.xml"]:
+            candidate = folder / name
+            if candidate.exists():
+                candidate.unlink()
+                print(f"removed duplicate launcher resource {candidate}")
+
+
 def write_launcher_and_splash_assets(root: Path) -> None:
     res = root / "collect_app" / "src" / "main" / "res"
     drawable = res / "drawable"
@@ -230,11 +262,8 @@ def write_launcher_and_splash_assets(root: Path) -> None:
         write_text(drawable / "child_care_thrive_splash.xml", SPLASH_LAYER_LIST)
         print("created layer-list placeholder splash asset")
 
-    for folder in res.glob("mipmap-*"):
-        if folder.is_dir():
-            write_text(folder / "ic_launcher.xml", ADAPTIVE_ICON)
-            write_text(folder / "ic_launcher_round.xml", ADAPTIVE_ICON)
-    print("wrote launcher adaptive icon XML files")
+    remove_old_generated_launcher_xml(root)
+    print("launcher icon is now referenced from @drawable/child_care_thrive_logo")
 
 
 def patch_splash_themes(root: Path) -> None:
@@ -291,9 +320,9 @@ def main() -> None:
 
     ensure_secrets(root)
     patch_build_gradle(root)
+    write_launcher_and_splash_assets(root)
     patch_manifest(root)
     patch_strings(root)
-    write_launcher_and_splash_assets(root)
     patch_splash_themes(root)
     write_branding_summary(root)
     print("Child-Care Thrive branding patch complete")
