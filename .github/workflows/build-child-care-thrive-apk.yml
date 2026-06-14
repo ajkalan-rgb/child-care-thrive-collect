@@ -10,6 +10,7 @@ permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   KOBOCOLLECT_REPO: https://github.com/kobotoolbox/collect.git
   KOBOCOLLECT_REF: master
 
@@ -29,6 +30,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Show wrapper repo files
+        run: |
+          echo "Wrapper repository contents:"
+          find . -maxdepth 3 -type f | sort
+          echo "Branding folder contents, if present:"
+          find branding -maxdepth 2 -type f -print 2>/dev/null || true
+
       - name: Clone KoboCollect source
         run: |
           git clone --depth 1 --branch "$KOBOCOLLECT_REF" "$KOBOCOLLECT_REPO" upstream-collect
@@ -39,21 +47,45 @@ jobs:
           if [ -d branding ]; then cp -R branding upstream-collect/branding; fi
           cd upstream-collect
           python3 apply_child_care_thrive_branding.py
+          echo "Generated/brand Android resources:"
+          find collect_app/src/main/res -type f \( -name '*child_care*' -o -name 'ic_launcher*' \) | sort | head -200
 
       - name: Make Gradle wrapper executable
         run: chmod +x upstream-collect/gradlew
 
-      - name: Build self-signed release APK
+      - name: List available Gradle assemble tasks
         working-directory: upstream-collect
         run: |
-          ./gradlew :collect_app:assembleSelfSignedRelease --stacktrace --no-daemon
+          ./gradlew tasks --all --no-daemon > ../gradle-tasks.txt || true
+          grep -i "assemble" ../gradle-tasks.txt | head -200 || true
+
+      - name: Build APK with diagnostics
+        working-directory: upstream-collect
+        run: |
+          set +e
+          echo "Trying self-signed release build first..." | tee ../gradle-build.log
+          ./gradlew :collect_app:assembleSelfSignedRelease --stacktrace --no-daemon 2>&1 | tee -a ../gradle-build.log
+          STATUS=${PIPESTATUS[0]}
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "selfSignedRelease failed with status $STATUS. Trying debug build fallback..." | tee -a ../gradle-build.log
+            ./gradlew :collect_app:assembleDebug --stacktrace --no-daemon 2>&1 | tee -a ../gradle-build.log
+            STATUS=${PIPESTATUS[0]}
+          fi
+
+          echo "Final build status: $STATUS" | tee -a ../gradle-build.log
+          exit "$STATUS"
 
       - name: Collect APK outputs
         if: always()
         run: |
-          mkdir -p apk-output
+          mkdir -p apk-output diagnostics
           find upstream-collect/collect_app/build/outputs/apk -type f -name '*.apk' -print -exec cp {} apk-output/ \; || true
+          cp gradle-build.log diagnostics/ 2>/dev/null || true
+          cp gradle-tasks.txt diagnostics/ 2>/dev/null || true
+          find upstream-collect/collect_app/build/outputs -type f | sort > diagnostics/build-outputs-file-list.txt 2>/dev/null || true
           ls -la apk-output || true
+          ls -la diagnostics || true
 
       - name: Upload APK artifact
         if: always()
@@ -61,5 +93,14 @@ jobs:
         with:
           name: child-care-thrive-apk
           path: apk-output/*.apk
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload diagnostics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: child-care-thrive-build-diagnostics
+          path: diagnostics/*
           if-no-files-found: warn
           retention-days: 14
