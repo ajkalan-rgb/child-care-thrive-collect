@@ -119,12 +119,7 @@ def patch_string_xml(path: Path) -> bool:
     text = read_text(path)
     original = text
     if 'name="collect_app_name"' in text:
-        text = re.sub(
-            r"<string\s+name=\"collect_app_name\"[^>]*>.*?</string>",
-            f"<string name=\"collect_app_name\">{xml_escape(APP_NAME)}</string>",
-            text,
-            flags=re.DOTALL,
-        )
+        text = re.sub(r"<string\s+name=\"collect_app_name\"[^>]*>.*?</string>", f"<string name=\"collect_app_name\">{xml_escape(APP_NAME)}</string>", text, flags=re.DOTALL)
     text = text.replace("KoboCollect", APP_NAME)
     text = text.replace("Kobo Collect", APP_NAME)
     text = text.replace("ODK Collect", APP_NAME)
@@ -172,9 +167,7 @@ def remove_launcher_xml_collisions(root: Path) -> None:
 
 
 def copy_drawable(src: Path, drawable_dir: Path, stem: str) -> str:
-    suffix = src.suffix.lower()
-    if suffix == ".jpeg":
-        suffix = ".jpg"
+    suffix = ".jpg" if src.suffix.lower() == ".jpeg" else src.suffix.lower()
     if suffix not in {".png", ".jpg", ".xml"}:
         raise SystemExit(f"Unsupported branding asset type: {src}")
     target = drawable_dir / f"{stem}{suffix}"
@@ -184,8 +177,7 @@ def copy_drawable(src: Path, drawable_dir: Path, stem: str) -> str:
 
 
 def write_splash_background(drawable_dir: Path, splash_ref: str) -> None:
-    if splash_ref.endswith("_splash"):
-        body = f"""<?xml version="1.0" encoding="utf-8"?>
+    body = f"""<?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
     <item>
@@ -193,15 +185,12 @@ def write_splash_background(drawable_dir: Path, splash_ref: str) -> None:
     </item>
 </layer-list>
 """
-    else:
-        body = DEFAULT_SPLASH_BACKGROUND
     write_text(drawable_dir / "child_care_thrive_splash_background.xml", body)
 
 
 def write_assets(root: Path) -> None:
     drawable = root / "collect_app" / "src" / "main" / "res" / "drawable"
     drawable.mkdir(parents=True, exist_ok=True)
-
     icon = find_asset(root, ["child_care_icon.png", "child_care_icon.xml", "child_care_logo.png", "child_care_logo.xml", "logo.png", "logo.xml", "icon.png", "icon.xml", "launcher.png"])
     splash = find_asset(root, ["child_care_splash.png", "child_care_splash.jpg", "child_care_splash.xml", "child_care_banner.png", "splash.png", "splash.jpg", "banner.png"])
 
@@ -217,12 +206,21 @@ def write_assets(root: Path) -> None:
 
     if splash:
         splash_ref = copy_drawable(splash, drawable, "child_care_thrive_splash")
+        write_splash_background(drawable, splash_ref)
     else:
-        write_text(drawable / "child_care_thrive_splash.xml", DEFAULT_SPLASH_BACKGROUND)
-        splash_ref = "@drawable/child_care_thrive_splash"
+        write_text(drawable / "child_care_thrive_splash_background.xml", DEFAULT_SPLASH_BACKGROUND)
 
-    write_splash_background(drawable, splash_ref)
     remove_launcher_xml_collisions(root)
+
+
+def add_window_background_to_style(text: str, style_name: str) -> str:
+    pattern = rf"(<style name=\"{style_name}\"[^>]*>)(.*?)(</style>)"
+    def repl(match: re.Match[str]) -> str:
+        body = match.group(2)
+        if "android:windowBackground" not in body:
+            body += "\n        <item name=\"android:windowBackground\">@drawable/child_care_thrive_splash_background</item>"
+        return match.group(1) + body + match.group(3)
+    return re.sub(pattern, repl, text, flags=re.DOTALL)
 
 
 def patch_splash_and_background(root: Path) -> None:
@@ -235,9 +233,10 @@ def patch_splash_and_background(root: Path) -> None:
         original = text
         if "windowSplashScreen" in text:
             text = re.sub(r"<item name=\"windowSplashScreenAnimatedIcon\">.*?</item>", "<item name=\"windowSplashScreenAnimatedIcon\">@drawable/child_care_thrive_logo</item>", text, flags=re.DOTALL)
-            text = re.sub(r"<item name=\"windowSplashScreenBackground\">.*?</item>", "<item name=\"windowSplashScreenBackground\">@drawable/child_care_thrive_splash_background</item>", text, flags=re.DOTALL)
+            text = re.sub(r"<item name=\"windowSplashScreenBackground\">.*?</item>", "<item name=\"windowSplashScreenBackground\">@android:color/white</item>", text, flags=re.DOTALL)
+            text = add_window_background_to_style(text, "Theme.Collect.SplashScreen")
         if "<style name=\"Theme.Collect\"" in text:
-            text = text.replace("<item name=\"android:colorBackground\">@color/colorSurface</item>", "<item name=\"android:colorBackground\">@color/colorSurface</item>\n        <item name=\"android:windowBackground\">@drawable/child_care_thrive_splash_background</item>")
+            text = add_window_background_to_style(text, "Theme.Collect")
         if text != original:
             write_text(path, text)
             print(f"patched splash/background theme {path}")
@@ -251,7 +250,7 @@ def verify(root: Path) -> None:
 - Package ID: `{PACKAGE_ID}`
 - Brand line: {BRAND_LINE}
 - APK base name: `{APK_BASENAME}`
-- Startup/background drawable: `@drawable/child_care_thrive_splash_background`
+- Startup/app window background: `@drawable/child_care_thrive_splash_background`
 """)
     drawable = root / "collect_app" / "src" / "main" / "res" / "drawable"
     if not any((drawable / f"child_care_thrive_logo{ext}").exists() for ext in [".png", ".jpg", ".xml"]):
