@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 APP_NAME = "Child-Care Thrive"
 PACKAGE_ID = "za.co.childcarethrive.collect"
@@ -140,14 +141,7 @@ def patch_manifest(root: Path) -> None:
 
 
 def patch_strings(root: Path) -> None:
-    """Patch existing label resources without creating duplicate string names.
-
-    Upstream currently defines collect_app_name in values/untranslated.xml. Older
-    versions of this script added another collect_app_name to values/strings.xml,
-    which caused :strings:packageDebugResources to fail with Duplicate resources.
-    This version only replaces existing definitions and creates no duplicate
-    collect_app_name resource.
-    """
+    """Patch existing label resources without creating duplicate string names."""
     values_dirs = [root / "strings" / "src" / "main" / "res" / "values"]
     patched_collect_name = False
 
@@ -161,7 +155,7 @@ def patch_strings(root: Path) -> None:
             if 'name="collect_app_name"' in text:
                 text = re.sub(
                     r"<string\s+name=\"collect_app_name\"[^>]*>.*?</string>",
-                    f"<string name=\"collect_app_name\">{APP_NAME}</string>",
+                    f"<string name=\"collect_app_name\">{xml_escape(APP_NAME)}</string>",
                     text,
                     flags=re.DOTALL,
                 )
@@ -179,11 +173,12 @@ def patch_strings(root: Path) -> None:
         print("warning: collect_app_name was not found in strings resources; app module label override will be used")
 
     # App-module strings must not duplicate collect_app_name from the strings module.
+    # BRAND_LINE contains an ampersand, so it must be XML-escaped as &amp;.
     write_text(
         root / "collect_app" / "src" / "main" / "res" / "values" / "child_care_thrive_strings.xml",
         f"""<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="child_care_thrive_brand_line">{BRAND_LINE}</string>
+    <string name="child_care_thrive_brand_line">{xml_escape(BRAND_LINE)}</string>
 </resources>
 """,
     )
