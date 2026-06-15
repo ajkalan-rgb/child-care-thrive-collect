@@ -136,6 +136,38 @@ def patch_strings(root: Path) -> None:
 """)
 
 
+def patch_brand_colours(root: Path) -> None:
+    values = root / "collect_app/src/main/res/values"
+    put(values / "child_care_thrive_palette.xml", """<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="child_care_text_primary">#061B2A</color>
+    <color name="child_care_text_secondary">#0B2A3C</color>
+    <color name="child_care_app_bar">#001117</color>
+    <color name="child_care_primary_button">#0B6F8A</color>
+    <color name="child_care_dark_button">#263134</color>
+</resources>
+""")
+
+    colors = values / "colors.xml"
+    if colors.exists():
+        s = txt(colors)
+        replacements = {
+            "colorPrimaryLight": "#001117",
+            "colorOnPrimaryLight": "#FFFFFF",
+            "colorPrimaryContainerLight": "#D8F0FF",
+            "colorOnPrimaryContainerLight": "#061B2A",
+            "colorSurfaceLight": "#FFFFFF",
+            "colorPrimaryDark": "#001117",
+            "colorOnPrimaryDark": "#FFFFFF",
+            "colorPrimaryContainerDark": "#263134",
+            "colorOnPrimaryContainerDark": "#FFFFFF",
+            "colorSurfaceDark": "#FFFFFF",
+        }
+        for name, value in replacements.items():
+            s = re.sub(rf"<color name=\"{name}\">.*?</color>", f"<color name=\"{name}\">{value}</color>", s)
+        put(colors, s)
+
+
 def patch_assets(root: Path) -> None:
     d = root / "collect_app/src/main/res/drawable"
     d.mkdir(parents=True, exist_ok=True)
@@ -177,6 +209,15 @@ def patch_style(text: str, style: str, updates: dict[str, str]) -> str:
 
 
 def patch_themes(root: Path) -> None:
+    text_updates = {
+        "android:textColorPrimary": "@color/child_care_text_primary",
+        "android:textColorSecondary": "@color/child_care_text_secondary",
+        "colorOnSurface": "@color/child_care_text_primary",
+        "colorOnSurfaceVariant": "@color/child_care_text_secondary",
+        "colorOnBackground": "@color/child_care_text_primary",
+        "colorPrimary": "@color/child_care_app_bar",
+        "colorOnPrimary": "@android:color/white",
+    }
     for p in (root / "collect_app/src/main/res").rglob("*.xml"):
         try:
             s = txt(p)
@@ -187,9 +228,11 @@ def patch_themes(root: Path) -> None:
             "windowSplashScreenAnimatedIcon": "@drawable/child_care_thrive_logo",
             "windowSplashScreenBackground": "@android:color/white",
             "android:windowBackground": "@drawable/child_care_thrive_startup_background",
+            **text_updates,
         })
         s = patch_style(s, "Theme.Collect", {
             "android:windowBackground": "@drawable/child_care_thrive_app_background",
+            **text_updates,
         })
         if s != o:
             put(p, s)
@@ -207,8 +250,19 @@ def hide_textview_by_id(xml: str, view_id: str) -> str:
     return re.sub(pattern, repl, xml, flags=re.DOTALL)
 
 
+def force_dark_text_for_general_layout(xml: str) -> str:
+    def repl(m: re.Match[str]) -> str:
+        tag = m.group(1)
+        close = m.group(2)
+        if "android:textColor=" in tag:
+            return m.group(0)
+        return tag + '\n        android:textColor="@color/child_care_text_primary"' + close
+    return re.sub(r"(<TextView\b[^>]*)(/?>)", repl, xml, flags=re.DOTALL)
+
+
 def patch_layouts(root: Path) -> None:
     layout_dir = root / "collect_app/src/main/res/layout"
+    skip_text_colour = {"main_menu_button.xml", "start_new_from_button.xml", "app_bar_layout.xml"}
 
     for p in layout_dir.glob("*.xml"):
         try:
@@ -217,6 +271,8 @@ def patch_layouts(root: Path) -> None:
             continue
         o = s
         s = re.sub(r'android:layout_height="match_parent"', 'android:layout_height="match_parent"\n    android:background="@drawable/child_care_thrive_app_background"', s, count=1)
+        if p.name not in skip_text_colour:
+            s = force_dark_text_for_general_layout(s)
         if s != o:
             put(p, s)
 
@@ -249,12 +305,13 @@ def main() -> None:
         raise SystemExit("Run from KoboCollect source root")
     ensure_secrets(root)
     patch_build(root)
+    patch_brand_colours(root)
     patch_assets(root)
     patch_manifest(root)
     patch_strings(root)
     patch_themes(root)
     patch_layouts(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Main-menu app/version text is hidden. Buttons are compact.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Main-menu app/version text is hidden. Buttons are compact. Text colours are forced to dark navy on branded backgrounds.\n")
     print("Child-Care Thrive branding patch complete")
 
 
