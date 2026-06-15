@@ -63,11 +63,12 @@ def copy_asset(src: Path, dst_dir: Path, stem: str) -> str:
     return f"@drawable/{stem}"
 
 
-def bitmap_background(drawable_ref: str) -> str:
+def bitmap_background(drawable_ref: str, *, app_wallpaper: bool = False) -> str:
+    inset_attrs = ' android:top="36dp" android:bottom="36dp" android:left="8dp" android:right="8dp"' if app_wallpaper else ""
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
-    <item>
+    <item{inset_attrs}>
         <bitmap android:src="{drawable_ref}" android:gravity="fill" />
     </item>
 </layer-list>
@@ -144,6 +145,7 @@ def patch_brand_colours(root: Path) -> None:
     <color name="child_care_primary_button">#0B6F8A</color>
     <color name="child_care_dark_button">#263134</color>
     <color name="child_care_dialog_surface">#FFFFFF</color>
+    <color name="child_care_transparent_surface">#00FFFFFF</color>
 </resources>
 """)
 
@@ -155,12 +157,12 @@ def patch_brand_colours(root: Path) -> None:
             "colorOnPrimaryLight": "#FFFFFF",
             "colorPrimaryContainerLight": "#D8F0FF",
             "colorOnPrimaryContainerLight": "#061B2A",
-            "colorSurfaceLight": "#FFFFFF",
+            "colorSurfaceLight": "#00FFFFFF",
             "colorPrimaryDark": "#001117",
             "colorOnPrimaryDark": "#FFFFFF",
             "colorPrimaryContainerDark": "#263134",
             "colorOnPrimaryContainerDark": "#FFFFFF",
-            "colorSurfaceDark": "#FFFFFF",
+            "colorSurfaceDark": "#00FFFFFF",
         }.items():
             text = re.sub(rf"<color name=\"{name}\">.*?</color>", f"<color name=\"{name}\">{value}</color>", text)
         put(colors, text)
@@ -187,7 +189,7 @@ def patch_assets(root: Path) -> None:
     startup_ref = copy_asset(startup, drawable, "child_care_thrive_startup") if startup else "@drawable/child_care_thrive_logo"
     splash_ref = copy_asset(splash, drawable, "child_care_thrive_app_background_image") if splash else startup_ref
     put(drawable / "child_care_thrive_startup_background.xml", bitmap_background(startup_ref))
-    put(drawable / "child_care_thrive_app_background.xml", bitmap_background(splash_ref))
+    put(drawable / "child_care_thrive_app_background.xml", bitmap_background(splash_ref, app_wallpaper=True))
 
     for folder in (root / "collect_app/src/main/res").glob("mipmap-*"):
         for name in ["ic_launcher.xml", "ic_launcher_round.xml"]:
@@ -225,11 +227,14 @@ def patch_themes(root: Path) -> None:
         "colorOnBackground": "@color/child_care_text_primary",
         "colorPrimary": "@color/child_care_app_bar",
         "colorOnPrimary": "@android:color/white",
-        "colorSurfaceContainerLowest": "@android:color/white",
-        "colorSurfaceContainerLow": "@android:color/white",
-        "colorSurfaceContainer": "@android:color/white",
-        "colorSurfaceContainerHigh": "@android:color/white",
-        "colorSurfaceContainerHighest": "@android:color/white",
+        "android:colorBackground": "@android:color/transparent",
+        "colorSurface": "@android:color/transparent",
+        "colorSurfaceContainerLowest": "@android:color/transparent",
+        "colorSurfaceContainerLow": "@android:color/transparent",
+        "colorSurfaceContainer": "@android:color/transparent",
+        "colorSurfaceContainerHigh": "@android:color/transparent",
+        "colorSurfaceContainerHighest": "@android:color/transparent",
+        "android:forceDarkAllowed": "false",
         "elevationOverlayEnabled": "false",
     }
     dialog_updates = {
@@ -242,6 +247,7 @@ def patch_themes(root: Path) -> None:
         "colorSurfaceContainerHighest": "@android:color/white",
         "colorPrimary": "@color/child_care_app_bar",
         "colorOnPrimary": "@android:color/white",
+        "android:forceDarkAllowed": "false",
         "buttonBarPositiveButtonStyle": "@style/Widget.Collect.Dialog.PositiveButton",
     }
     for path in (root / "collect_app/src/main/res").rglob("*.xml"):
@@ -250,6 +256,7 @@ def patch_themes(root: Path) -> None:
         except UnicodeDecodeError:
             continue
         original = text
+        text = text.replace('parent="Theme.Material3.DayNight.NoActionBar"', 'parent="Theme.Material3.Light.NoActionBar"')
         text = patch_style(text, "Theme.Collect.SplashScreen", {
             "windowSplashScreenAnimatedIcon": "@drawable/child_care_thrive_logo",
             "windowSplashScreenBackground": "@android:color/white",
@@ -293,6 +300,18 @@ def patch_known_text_colours(xml: str) -> str:
     return xml
 
 
+def add_or_replace_attr_on_view(xml: str, tag_name: str, view_id: str, attr_name: str, attr_value: str) -> str:
+    pattern = rf"(<{re.escape(tag_name)}\b(?=[^>]*android:id=\"@\+id/{re.escape(view_id)}\")[^>]*)(/?>)"
+
+    def replace(match: re.Match[str]) -> str:
+        tag = match.group(1)
+        close = match.group(2)
+        tag = re.sub(rf"\s{re.escape(attr_name)}=\"[^\"]*\"", "", tag)
+        return tag + f'\n        {attr_name}=\"{attr_value}\"' + close
+
+    return re.sub(pattern, replace, xml, flags=re.DOTALL)
+
+
 def patch_button_backgrounds(root: Path) -> None:
     drawable = root / "collect_app/src/main/res/drawable"
     patch_file(drawable / "main_menu_button_background.xml", [
@@ -308,9 +327,19 @@ def patch_main_menu_button_layout(layout_dir: Path) -> None:
     if not path.exists():
         return
     text = txt(path)
-    text = text.replace('tools:src="@drawable/ic_delete" />', 'app:tint="@android:color/white"\n        tools:src="@drawable/ic_delete" />')
-    text = text.replace('android:textAppearance="?textAppearanceTitleMedium"', 'android:textAppearance="?textAppearanceTitleMedium"\n        android:textColor="@android:color/white"')
-    text = text.replace('android:textAppearance="?textAppearanceLabelExtraLarge"', 'android:textAppearance="?textAppearanceTitleMedium"\n        android:textColor="@android:color/white"')
+    text = add_or_replace_attr_on_view(text, "ImageView", "icon", "app:tint", "@android:color/white")
+    text = add_or_replace_attr_on_view(text, "TextView", "name", "android:textColor", "@android:color/white")
+    text = add_or_replace_attr_on_view(text, "TextView", "number", "android:textColor", "@android:color/white")
+    put(path, text)
+
+
+def patch_start_new_button_layout(layout_dir: Path) -> None:
+    path = layout_dir / "start_new_from_button.xml"
+    if not path.exists():
+        return
+    text = txt(path)
+    text = add_or_replace_attr_on_view(text, "ImageView", "icon", "app:tint", "@android:color/white")
+    text = add_or_replace_attr_on_view(text, "TextView", "name", "android:textColor", "@android:color/white")
     put(path, text)
 
 
@@ -326,6 +355,33 @@ def patch_first_launch_layout(layout_dir: Path) -> None:
     text = hide_textview_by_id(text, "app_name")
     text = hide_textview_by_id(text, "dont_have_server")
     put(path, text)
+
+
+def patch_kotlin_code(root: Path) -> None:
+    path = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuButton.kt"
+    if path.exists():
+        text = txt(path)
+        if "import android.graphics.Color" not in text:
+            text = text.replace("import android.content.Context\n", "import android.content.Context\nimport android.graphics.Color\n")
+        marker = "            binding.name.text = buttonName\n"
+        replacement = "            binding.name.text = buttonName\n            binding.name.setTextColor(Color.WHITE)\n            binding.number.setTextColor(Color.WHITE)\n            binding.icon.setColorFilter(Color.WHITE)\n"
+        if marker in text and replacement not in text:
+            text = text.replace(marker, replacement)
+        put(path, text)
+
+    first = root / "collect_app/src/main/java/org/odk/collect/android/activities/FirstLaunchActivity.kt"
+    if first.exists():
+        text = txt(first)
+        text = re.sub(
+            r"\n\s*appName\.text = String\.format\(\s*\"%s %s\",\s*getString\(org\.odk\.collect\.strings\.R\.string\.collect_app_name\),\s*versionInformation\.versionToDisplay\s*\)\s*",
+            "\n            appName.text = \"\"\n            appName.visibility = android.view.View.GONE\n",
+            text,
+            flags=re.DOTALL,
+        )
+        if "import android.view.View" not in text:
+            text = text.replace("import android.text.SpannableStringBuilder\n", "import android.text.SpannableStringBuilder\nimport android.view.View\n")
+        text = text.replace("            dontHaveServer.apply {", "            dontHaveServer.visibility = View.GONE\n            dontHaveServer.apply {")
+        put(first, text)
 
 
 def patch_layouts(root: Path) -> None:
@@ -363,6 +419,7 @@ def patch_layouts(root: Path) -> None:
         patch_file(layout_dir / name, compact)
 
     patch_main_menu_button_layout(layout_dir)
+    patch_start_new_button_layout(layout_dir)
     patch_first_launch_layout(layout_dir)
 
 
@@ -391,8 +448,9 @@ def main() -> None:
     patch_themes(root)
     patch_button_backgrounds(root)
     patch_layouts(root)
+    patch_kotlin_code(root)
     validate_xml_resources(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. First-launch version/demo text is hidden. Dialogs use white surfaces with dark text. Main-menu button text/icons are white on dark buttons. XML is validated before Gradle runs.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Light theme is forced. App surfaces are transparent so the background can carry through more screens. Dialogs are forced white with dark text. Main-menu button text/icons are forced white in XML and Kotlin. XML is validated before Gradle runs.\n")
     print("Child-Care Thrive branding patch complete")
 
 
