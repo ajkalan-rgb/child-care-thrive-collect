@@ -255,8 +255,24 @@ def add_background_to_root(xml: str) -> str:
     if not m:
         return xml
     start, end = m.span()
+    tag_name = m.group(1)
     tag = xml[start:end]
     if "android:background=" in tag or "<include" in tag:
+        return xml
+    if tag.rstrip().endswith("/>"):
+        return xml
+    allowed_roots = (
+        "Layout",
+        "ScrollView",
+        "NestedScrollView",
+        "CoordinatorLayout",
+        "DrawerLayout",
+        "FrameLayout",
+        "LinearLayout",
+        "ConstraintLayout",
+        "RecyclerView",
+    )
+    if not tag_name.endswith(allowed_roots):
         return xml
     return xml[:end - 1] + '\n    android:background="@drawable/child_care_thrive_app_background"' + xml[end - 1:]
 
@@ -324,7 +340,7 @@ def main() -> None:
     patch_strings(root)
     patch_themes(root)
     patch_layouts(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Main-menu app/version text is hidden. Buttons are compact. Text colours are patched safely without generic TextView XML injection.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Main-menu app/version text is hidden. Buttons are compact. Backgrounds are only applied to container layouts to keep XML valid.\n")
     print("Child-Care Thrive branding patch complete")
 
 
