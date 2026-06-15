@@ -64,7 +64,8 @@ def copy_asset(src: Path, dst_dir: Path, stem: str) -> str:
 
 
 def bitmap_background(drawable_ref: str, *, app_wallpaper: bool = False) -> str:
-    inset_attrs = ' android:top="36dp" android:bottom="36dp" android:left="8dp" android:right="8dp"' if app_wallpaper else ""
+    # App screens have top bars/toolbars. The inset stops the header logo in the background from being hidden under them.
+    inset_attrs = ' android:top="88dp" android:bottom="48dp" android:left="8dp" android:right="8dp"' if app_wallpaper else ""
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
@@ -274,15 +275,16 @@ def patch_themes(root: Path) -> None:
 
 
 def hide_textview_by_id(xml: str, view_id: str) -> str:
-    pattern = rf"(<TextView\b(?=[^>]*android:id=\"@\+id/{re.escape(view_id)}\")[^>]*)(/>)"
+    pattern = rf"(<TextView\b(?=[^>]*android:id=\"@\+id/{re.escape(view_id)}\")[^>]*?)(\s*/>)"
 
     def replace(match: re.Match[str]) -> str:
         block = match.group(1)
+        close = match.group(2)
         if "android:visibility=" not in block:
             block += '\n                android:visibility="gone"'
         if "android:layout_height=" in block:
             block = re.sub(r'android:layout_height="[^"]+"', 'android:layout_height="0dp"', block)
-        return block + match.group(2)
+        return block + close
 
     return re.sub(pattern, replace, xml, flags=re.DOTALL)
 
@@ -300,18 +302,6 @@ def patch_known_text_colours(xml: str) -> str:
     return xml
 
 
-def add_or_replace_attr_on_view(xml: str, tag_name: str, view_id: str, attr_name: str, attr_value: str) -> str:
-    pattern = rf"(<{re.escape(tag_name)}\b(?=[^>]*android:id=\"@\+id/{re.escape(view_id)}\")[^>]*)(/?>)"
-
-    def replace(match: re.Match[str]) -> str:
-        tag = match.group(1)
-        close = match.group(2)
-        tag = re.sub(rf"\s{re.escape(attr_name)}=\"[^\"]*\"", "", tag)
-        return tag + f'\n        {attr_name}=\"{attr_value}\"' + close
-
-    return re.sub(pattern, replace, xml, flags=re.DOTALL)
-
-
 def patch_button_backgrounds(root: Path) -> None:
     drawable = root / "collect_app/src/main/res/drawable"
     patch_file(drawable / "main_menu_button_background.xml", [
@@ -320,27 +310,6 @@ def patch_button_backgrounds(root: Path) -> None:
     patch_file(drawable / "start_new_form_button_background.xml", [
         ('<solid android:color="?colorPrimary" />', '<solid android:color="@color/child_care_primary_button" />'),
     ])
-
-
-def patch_main_menu_button_layout(layout_dir: Path) -> None:
-    path = layout_dir / "main_menu_button.xml"
-    if not path.exists():
-        return
-    text = txt(path)
-    text = add_or_replace_attr_on_view(text, "ImageView", "icon", "app:tint", "@android:color/white")
-    text = add_or_replace_attr_on_view(text, "TextView", "name", "android:textColor", "@android:color/white")
-    text = add_or_replace_attr_on_view(text, "TextView", "number", "android:textColor", "@android:color/white")
-    put(path, text)
-
-
-def patch_start_new_button_layout(layout_dir: Path) -> None:
-    path = layout_dir / "start_new_from_button.xml"
-    if not path.exists():
-        return
-    text = txt(path)
-    text = add_or_replace_attr_on_view(text, "ImageView", "icon", "app:tint", "@android:color/white")
-    text = add_or_replace_attr_on_view(text, "TextView", "name", "android:textColor", "@android:color/white")
-    put(path, text)
 
 
 def patch_first_launch_layout(layout_dir: Path) -> None:
@@ -372,15 +341,16 @@ def patch_kotlin_code(root: Path) -> None:
     first = root / "collect_app/src/main/java/org/odk/collect/android/activities/FirstLaunchActivity.kt"
     if first.exists():
         text = txt(first)
+        if "import android.view.View" not in text:
+            text = text.replace("import android.text.SpannableStringBuilder\n", "import android.text.SpannableStringBuilder\nimport android.view.View\n")
         text = re.sub(
             r"\n\s*appName\.text = String\.format\(\s*\"%s %s\",\s*getString\(org\.odk\.collect\.strings\.R\.string\.collect_app_name\),\s*versionInformation\.versionToDisplay\s*\)\s*",
-            "\n            appName.text = \"\"\n            appName.visibility = android.view.View.GONE\n",
+            "\n            appName.text = \"\"\n            appName.visibility = View.GONE\n",
             text,
             flags=re.DOTALL,
         )
-        if "import android.view.View" not in text:
-            text = text.replace("import android.text.SpannableStringBuilder\n", "import android.text.SpannableStringBuilder\nimport android.view.View\n")
-        text = text.replace("            dontHaveServer.apply {", "            dontHaveServer.visibility = View.GONE\n            dontHaveServer.apply {")
+        if "dontHaveServer.visibility = View.GONE" not in text:
+            text = text.replace("            dontHaveServer.apply {", "            dontHaveServer.visibility = View.GONE\n            dontHaveServer.apply {")
         put(first, text)
 
 
@@ -418,8 +388,6 @@ def patch_layouts(root: Path) -> None:
     for name in ["main_menu_button.xml", "start_new_from_button.xml"]:
         patch_file(layout_dir / name, compact)
 
-    patch_main_menu_button_layout(layout_dir)
-    patch_start_new_button_layout(layout_dir)
     patch_first_launch_layout(layout_dir)
 
 
@@ -450,7 +418,7 @@ def main() -> None:
     patch_layouts(root)
     patch_kotlin_code(root)
     validate_xml_resources(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Light theme is forced. App surfaces are transparent so the background can carry through more screens. Dialogs are forced white with dark text. Main-menu button text/icons are forced white in XML and Kotlin. XML is validated before Gradle runs.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Light theme is forced. Background wallpaper is inset to avoid logo clipping. Dialogs are forced white with dark text. Main-menu button text/icons are forced white in Kotlin instead of unsafe XML injection. XML is validated before Gradle runs.\n")
     print("Child-Care Thrive branding patch complete")
 
 
