@@ -123,6 +123,7 @@ def patch_strings(root: Path) -> None:
             continue
         original = text
         text = re.sub(r"<string\s+name=\"collect_app_name\"[^>]*>.*?</string>", f"<string name=\"collect_app_name\">{xml_escape(APP_NAME)}</string>", text, flags=re.DOTALL)
+        text = re.sub(r"<string\s+name=\"tagline\"[^>]*>.*?</string>", "<string name=\"tagline\">Configure project</string>", text, flags=re.DOTALL)
         text = text.replace("KoboCollect", APP_NAME).replace("Kobo Collect", APP_NAME).replace("ODK Collect", APP_NAME)
         if text != original:
             put(path, text)
@@ -142,6 +143,7 @@ def patch_brand_colours(root: Path) -> None:
     <color name="child_care_app_bar">#001117</color>
     <color name="child_care_primary_button">#0B6F8A</color>
     <color name="child_care_dark_button">#263134</color>
+    <color name="child_care_dialog_surface">#FFFFFF</color>
 </resources>
 """)
 
@@ -215,7 +217,7 @@ def patch_style(text: str, style: str, updates: dict[str, str]) -> str:
 
 
 def patch_themes(root: Path) -> None:
-    updates = {
+    app_updates = {
         "android:textColorPrimary": "@color/child_care_text_primary",
         "android:textColorSecondary": "@color/child_care_text_secondary",
         "colorOnSurface": "@color/child_care_text_primary",
@@ -223,6 +225,24 @@ def patch_themes(root: Path) -> None:
         "colorOnBackground": "@color/child_care_text_primary",
         "colorPrimary": "@color/child_care_app_bar",
         "colorOnPrimary": "@android:color/white",
+        "colorSurfaceContainerLowest": "@android:color/white",
+        "colorSurfaceContainerLow": "@android:color/white",
+        "colorSurfaceContainer": "@android:color/white",
+        "colorSurfaceContainerHigh": "@android:color/white",
+        "colorSurfaceContainerHighest": "@android:color/white",
+        "elevationOverlayEnabled": "false",
+    }
+    dialog_updates = {
+        "android:colorBackground": "@android:color/white",
+        "colorSurface": "@android:color/white",
+        "colorOnSurface": "@color/child_care_text_primary",
+        "colorOnBackground": "@color/child_care_text_primary",
+        "colorSurfaceContainer": "@android:color/white",
+        "colorSurfaceContainerHigh": "@android:color/white",
+        "colorSurfaceContainerHighest": "@android:color/white",
+        "colorPrimary": "@color/child_care_app_bar",
+        "colorOnPrimary": "@android:color/white",
+        "buttonBarPositiveButtonStyle": "@style/Widget.Collect.Dialog.PositiveButton",
     }
     for path in (root / "collect_app/src/main/res").rglob("*.xml"):
         try:
@@ -234,12 +254,14 @@ def patch_themes(root: Path) -> None:
             "windowSplashScreenAnimatedIcon": "@drawable/child_care_thrive_logo",
             "windowSplashScreenBackground": "@android:color/white",
             "android:windowBackground": "@drawable/child_care_thrive_startup_background",
-            **updates,
+            **app_updates,
         })
         text = patch_style(text, "Theme.Collect", {
             "android:windowBackground": "@drawable/child_care_thrive_app_background",
-            **updates,
+            **app_updates,
         })
+        text = patch_style(text, "Theme.Collect.Dialog.Alert", dialog_updates)
+        text = patch_style(text, "Theme.Collect.BottomSheet", dialog_updates)
         if text != original:
             put(path, text)
 
@@ -262,7 +284,7 @@ def patch_known_text_colours(xml: str) -> str:
     for old, new in [
         ('android:textColor="#888"', 'android:textColor="@color/child_care_text_secondary"'),
         ('android:textColor="#888888"', 'android:textColor="@color/child_care_text_secondary"'),
-        ('android:textColor="@color/color_on_surface_medium_emphasis"', 'android:textColor="@color/child_care_text_primary"'),
+        ('android:textColor="@color/color_on_surface_medium_emphasis"', 'android:textColor="@color/child_care_text_secondary"'),
         ('android:textColor="@color/color_on_surface_low_emphasis"', 'android:textColor="@color/child_care_text_secondary"'),
         ('android:textColor="?colorOnSurface"', 'android:textColor="@color/child_care_text_primary"'),
         ('android:textColor="?attr/colorOnSurface"', 'android:textColor="@color/child_care_text_primary"'),
@@ -279,6 +301,31 @@ def patch_button_backgrounds(root: Path) -> None:
     patch_file(drawable / "start_new_form_button_background.xml", [
         ('<solid android:color="?colorPrimary" />', '<solid android:color="@color/child_care_primary_button" />'),
     ])
+
+
+def patch_main_menu_button_layout(layout_dir: Path) -> None:
+    path = layout_dir / "main_menu_button.xml"
+    if not path.exists():
+        return
+    text = txt(path)
+    text = text.replace('tools:src="@drawable/ic_delete" />', 'app:tint="@android:color/white"\n        tools:src="@drawable/ic_delete" />')
+    text = text.replace('android:textAppearance="?textAppearanceTitleMedium"', 'android:textAppearance="?textAppearanceTitleMedium"\n        android:textColor="@android:color/white"')
+    text = text.replace('android:textAppearance="?textAppearanceLabelExtraLarge"', 'android:textAppearance="?textAppearanceTitleMedium"\n        android:textColor="@android:color/white"')
+    put(path, text)
+
+
+def patch_first_launch_layout(layout_dir: Path) -> None:
+    path = layout_dir / "first_launch_layout.xml"
+    if not path.exists():
+        return
+    text = txt(path)
+    text = text.replace('android:src="@drawable/kobologo_symbol_cropped"', 'android:src="@drawable/child_care_thrive_logo"')
+    text = text.replace('android:layout_width="100dp"', 'android:layout_width="80dp"', 1)
+    text = text.replace('android:lines="2"', 'android:lines="1"')
+    text = text.replace('android:text="@string/tagline"', 'android:text="Configure project"')
+    text = hide_textview_by_id(text, "app_name")
+    text = hide_textview_by_id(text, "dont_have_server")
+    put(path, text)
 
 
 def patch_layouts(root: Path) -> None:
@@ -315,6 +362,9 @@ def patch_layouts(root: Path) -> None:
     for name in ["main_menu_button.xml", "start_new_from_button.xml"]:
         patch_file(layout_dir / name, compact)
 
+    patch_main_menu_button_layout(layout_dir)
+    patch_first_launch_layout(layout_dir)
+
 
 def validate_xml_resources(root: Path) -> None:
     errors: list[str] = []
@@ -342,7 +392,7 @@ def main() -> None:
     patch_button_backgrounds(root)
     patch_layouts(root)
     validate_xml_resources(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Main-menu app/version text is hidden. Buttons are compact. Risky bulk layout background insertion is disabled and XML is validated before Gradle runs.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. First-launch version/demo text is hidden. Dialogs use white surfaces with dark text. Main-menu button text/icons are white on dark buttons. XML is validated before Gradle runs.\n")
     print("Child-Care Thrive branding patch complete")
 
 
