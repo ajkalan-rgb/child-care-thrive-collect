@@ -250,19 +250,33 @@ def hide_textview_by_id(xml: str, view_id: str) -> str:
     return re.sub(pattern, repl, xml, flags=re.DOTALL)
 
 
-def force_dark_text_for_general_layout(xml: str) -> str:
-    def repl(m: re.Match[str]) -> str:
-        tag = m.group(1)
-        close = m.group(2)
-        if "android:textColor=" in tag:
-            return m.group(0)
-        return tag + '\n        android:textColor="@color/child_care_text_primary"' + close
-    return re.sub(r"(<TextView\b[^>]*)(/?>)", repl, xml, flags=re.DOTALL)
+def add_background_to_root(xml: str) -> str:
+    m = re.search(r"<([\w.]+)(\s[^>]*)?>", xml)
+    if not m:
+        return xml
+    start, end = m.span()
+    tag = xml[start:end]
+    if "android:background=" in tag or "<include" in tag:
+        return xml
+    return xml[:end - 1] + '\n    android:background="@drawable/child_care_thrive_app_background"' + xml[end - 1:]
+
+
+def patch_known_text_colours(xml: str) -> str:
+    replacements = [
+        ('android:textColor="#888"', 'android:textColor="@color/child_care_text_secondary"'),
+        ('android:textColor="#888888"', 'android:textColor="@color/child_care_text_secondary"'),
+        ('android:textColor="@color/color_on_surface_medium_emphasis"', 'android:textColor="@color/child_care_text_primary"'),
+        ('android:textColor="@color/color_on_surface_low_emphasis"', 'android:textColor="@color/child_care_text_secondary"'),
+        ('android:textColor="?colorOnSurface"', 'android:textColor="@color/child_care_text_primary"'),
+        ('android:textColor="?attr/colorOnSurface"', 'android:textColor="@color/child_care_text_primary"'),
+    ]
+    for old, new in replacements:
+        xml = xml.replace(old, new)
+    return xml
 
 
 def patch_layouts(root: Path) -> None:
     layout_dir = root / "collect_app/src/main/res/layout"
-    skip_text_colour = {"main_menu_button.xml", "start_new_from_button.xml", "app_bar_layout.xml"}
 
     for p in layout_dir.glob("*.xml"):
         try:
@@ -270,9 +284,8 @@ def patch_layouts(root: Path) -> None:
         except UnicodeDecodeError:
             continue
         o = s
-        s = re.sub(r'android:layout_height="match_parent"', 'android:layout_height="match_parent"\n    android:background="@drawable/child_care_thrive_app_background"', s, count=1)
-        if p.name not in skip_text_colour:
-            s = force_dark_text_for_general_layout(s)
+        s = add_background_to_root(s)
+        s = patch_known_text_colours(s)
         if s != o:
             put(p, s)
 
@@ -311,7 +324,7 @@ def main() -> None:
     patch_strings(root)
     patch_themes(root)
     patch_layouts(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Main-menu app/version text is hidden. Buttons are compact. Text colours are forced to dark navy on branded backgrounds.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Main-menu app/version text is hidden. Buttons are compact. Text colours are patched safely without generic TextView XML injection.\n")
     print("Child-Care Thrive branding patch complete")
 
 
