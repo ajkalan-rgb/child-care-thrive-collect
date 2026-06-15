@@ -12,6 +12,7 @@ APP_NAME = "Child-Care Thrive"
 PACKAGE_ID = "za.co.childcarethrive.collect"
 BRAND_LINE = "Child-Care Thrive powered by HIV Survivors & Partners Network"
 APK_BASENAME = "Child-Care-Thrive-Collect"
+SERVER_URL = "https://kf.kobotoolbox.org"
 REQUIRE_ASSETS = os.getenv("REQUIRE_BRANDING_ASSETS", "true").lower() not in {"0", "false", "no"}
 
 LOGO_XML = """<?xml version="1.0" encoding="utf-8"?>
@@ -63,13 +64,11 @@ def copy_asset(src: Path, dst_dir: Path, stem: str) -> str:
     return f"@drawable/{stem}"
 
 
-def bitmap_background(drawable_ref: str, *, app_wallpaper: bool = False) -> str:
-    # App screens have top bars/toolbars. The inset stops the header logo in the background from being hidden under them.
-    inset_attrs = ' android:top="88dp" android:bottom="48dp" android:left="8dp" android:right="8dp"' if app_wallpaper else ""
+def bitmap_background(drawable_ref: str) -> str:
     return f"""<?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
-    <item{inset_attrs}>
+    <item>
         <bitmap android:src="{drawable_ref}" android:gravity="fill" />
     </item>
 </layer-list>
@@ -145,8 +144,6 @@ def patch_brand_colours(root: Path) -> None:
     <color name="child_care_app_bar">#001117</color>
     <color name="child_care_primary_button">#0B6F8A</color>
     <color name="child_care_dark_button">#263134</color>
-    <color name="child_care_dialog_surface">#FFFFFF</color>
-    <color name="child_care_transparent_surface">#00FFFFFF</color>
 </resources>
 """)
 
@@ -158,12 +155,12 @@ def patch_brand_colours(root: Path) -> None:
             "colorOnPrimaryLight": "#FFFFFF",
             "colorPrimaryContainerLight": "#D8F0FF",
             "colorOnPrimaryContainerLight": "#061B2A",
-            "colorSurfaceLight": "#00FFFFFF",
+            "colorSurfaceLight": "#FFFFFF",
             "colorPrimaryDark": "#001117",
             "colorOnPrimaryDark": "#FFFFFF",
             "colorPrimaryContainerDark": "#263134",
             "colorOnPrimaryContainerDark": "#FFFFFF",
-            "colorSurfaceDark": "#00FFFFFF",
+            "colorSurfaceDark": "#FFFFFF",
         }.items():
             text = re.sub(rf"<color name=\"{name}\">.*?</color>", f"<color name=\"{name}\">{value}</color>", text)
         put(colors, text)
@@ -172,26 +169,21 @@ def patch_brand_colours(root: Path) -> None:
 def patch_assets(root: Path) -> None:
     drawable = root / "collect_app/src/main/res/drawable"
     drawable.mkdir(parents=True, exist_ok=True)
-
     icon = find_asset(root, ["child_care_icon.png", "child_care_icon.xml", "child_care_logo.png", "logo.png", "icon.png"])
     splash = find_asset(root, ["child_care_splash.png", "child_care_splash.jpg", "child_care_splash.xml", "child_care_banner.png", "splash.png", "splash.jpg", "banner.png"])
     startup = find_asset(root, ["child_care_startup.png", "startup.png", "startup_screen.png", "child_thrive_startup.png", "child_thrie_startup.png", "chil_thrive_startup.png", "chil_thrie_startup.png"])
-
     if REQUIRE_ASSETS and not icon:
         raise SystemExit("Missing branding/child_care_icon.png")
     if REQUIRE_ASSETS and not startup:
         raise SystemExit("Missing branding/child_care_startup.png")
-
     if icon:
         copy_asset(icon, drawable, "child_care_thrive_logo")
     else:
         put(drawable / "child_care_thrive_logo.xml", LOGO_XML)
-
     startup_ref = copy_asset(startup, drawable, "child_care_thrive_startup") if startup else "@drawable/child_care_thrive_logo"
     splash_ref = copy_asset(splash, drawable, "child_care_thrive_app_background_image") if splash else startup_ref
     put(drawable / "child_care_thrive_startup_background.xml", bitmap_background(startup_ref))
-    put(drawable / "child_care_thrive_app_background.xml", bitmap_background(splash_ref, app_wallpaper=True))
-
+    put(drawable / "child_care_thrive_app_background.xml", bitmap_background(splash_ref))
     for folder in (root / "collect_app/src/main/res").glob("mipmap-*"):
         for name in ["ic_launcher.xml", "ic_launcher_round.xml"]:
             path = folder / name
@@ -209,13 +201,11 @@ def set_style_item(body: str, item: str, value: str) -> str:
 
 def patch_style(text: str, style: str, updates: dict[str, str]) -> str:
     pattern = rf"(<style name=\"{re.escape(style)}\"[^>]*>)(.*?)(</style>)"
-
     def replace(match: re.Match[str]) -> str:
         body = match.group(2)
         for key, value in updates.items():
             body = set_style_item(body, key, value)
         return match.group(1) + body + match.group(3)
-
     return re.sub(pattern, replace, text, flags=re.DOTALL)
 
 
@@ -228,13 +218,13 @@ def patch_themes(root: Path) -> None:
         "colorOnBackground": "@color/child_care_text_primary",
         "colorPrimary": "@color/child_care_app_bar",
         "colorOnPrimary": "@android:color/white",
-        "android:colorBackground": "@android:color/transparent",
-        "colorSurface": "@android:color/transparent",
-        "colorSurfaceContainerLowest": "@android:color/transparent",
-        "colorSurfaceContainerLow": "@android:color/transparent",
-        "colorSurfaceContainer": "@android:color/transparent",
-        "colorSurfaceContainerHigh": "@android:color/transparent",
-        "colorSurfaceContainerHighest": "@android:color/transparent",
+        "android:colorBackground": "@android:color/white",
+        "colorSurface": "@android:color/white",
+        "colorSurfaceContainerLowest": "@android:color/white",
+        "colorSurfaceContainerLow": "@android:color/white",
+        "colorSurfaceContainer": "@android:color/white",
+        "colorSurfaceContainerHigh": "@android:color/white",
+        "colorSurfaceContainerHighest": "@android:color/white",
         "android:forceDarkAllowed": "false",
         "elevationOverlayEnabled": "false",
     }
@@ -243,9 +233,6 @@ def patch_themes(root: Path) -> None:
         "colorSurface": "@android:color/white",
         "colorOnSurface": "@color/child_care_text_primary",
         "colorOnBackground": "@color/child_care_text_primary",
-        "colorSurfaceContainer": "@android:color/white",
-        "colorSurfaceContainerHigh": "@android:color/white",
-        "colorSurfaceContainerHighest": "@android:color/white",
         "colorPrimary": "@color/child_care_app_bar",
         "colorOnPrimary": "@android:color/white",
         "android:forceDarkAllowed": "false",
@@ -265,7 +252,7 @@ def patch_themes(root: Path) -> None:
             **app_updates,
         })
         text = patch_style(text, "Theme.Collect", {
-            "android:windowBackground": "@drawable/child_care_thrive_app_background",
+            "android:windowBackground": "@android:color/white",
             **app_updates,
         })
         text = patch_style(text, "Theme.Collect.Dialog.Alert", dialog_updates)
@@ -274,32 +261,16 @@ def patch_themes(root: Path) -> None:
             put(path, text)
 
 
-def hide_textview_by_id(xml: str, view_id: str) -> str:
-    pattern = rf"(<TextView\b(?=[^>]*android:id=\"@\+id/{re.escape(view_id)}\")[^>]*?)(\s*/>)"
-
+def hide_view_by_id(xml: str, view_id: str) -> str:
+    pattern = rf"(<[\w.]+\b(?=[^>]*android:id=\"@\+id/{re.escape(view_id)}\")[^>]*?)(\s*/?>)"
     def replace(match: re.Match[str]) -> str:
-        block = match.group(1)
-        close = match.group(2)
+        block, close = match.group(1), match.group(2)
         if "android:visibility=" not in block:
             block += '\n                android:visibility="gone"'
         if "android:layout_height=" in block:
             block = re.sub(r'android:layout_height="[^"]+"', 'android:layout_height="0dp"', block)
         return block + close
-
     return re.sub(pattern, replace, xml, flags=re.DOTALL)
-
-
-def patch_known_text_colours(xml: str) -> str:
-    for old, new in [
-        ('android:textColor="#888"', 'android:textColor="@color/child_care_text_secondary"'),
-        ('android:textColor="#888888"', 'android:textColor="@color/child_care_text_secondary"'),
-        ('android:textColor="@color/color_on_surface_medium_emphasis"', 'android:textColor="@color/child_care_text_secondary"'),
-        ('android:textColor="@color/color_on_surface_low_emphasis"', 'android:textColor="@color/child_care_text_secondary"'),
-        ('android:textColor="?colorOnSurface"', 'android:textColor="@color/child_care_text_primary"'),
-        ('android:textColor="?attr/colorOnSurface"', 'android:textColor="@color/child_care_text_primary"'),
-    ]:
-        xml = xml.replace(old, new)
-    return xml
 
 
 def patch_button_backgrounds(root: Path) -> None:
@@ -312,32 +283,73 @@ def patch_button_backgrounds(root: Path) -> None:
     ])
 
 
-def patch_first_launch_layout(layout_dir: Path) -> None:
-    path = layout_dir / "first_launch_layout.xml"
-    if not path.exists():
-        return
-    text = txt(path)
-    text = text.replace('android:src="@drawable/kobologo_symbol_cropped"', 'android:src="@drawable/child_care_thrive_logo"')
-    text = text.replace('android:layout_width="100dp"', 'android:layout_width="80dp"', 1)
-    text = text.replace('android:lines="2"', 'android:lines="1"')
-    text = text.replace('android:text="@string/tagline"', 'android:text="Configure project"')
-    text = hide_textview_by_id(text, "app_name")
-    text = hide_textview_by_id(text, "dont_have_server")
-    put(path, text)
+def patch_layouts(root: Path) -> None:
+    layout_dir = root / "collect_app/src/main/res/layout"
+    main_menu = layout_dir / "main_menu.xml"
+    if main_menu.exists():
+        text = txt(main_menu)
+        text = text.replace('android:layout_height="match_parent">', 'android:layout_height="match_parent"\n    android:background="@drawable/child_care_thrive_app_background">', 1)
+        text = text.replace('android:layout_marginTop="@dimen/margin_extra_small"', 'android:layout_marginTop="132dp"', 1)
+        text = hide_view_by_id(text, "app_name")
+        text = hide_view_by_id(text, "version_sha")
+        put(main_menu, text)
+    first = layout_dir / "first_launch_layout.xml"
+    if first.exists():
+        text = txt(first)
+        text = text.replace('android:fillViewport="true">', 'android:fillViewport="true"\n    android:background="@drawable/child_care_thrive_app_background">')
+        text = hide_view_by_id(text, "logo")
+        text = hide_view_by_id(text, "configure_via_qr_button")
+        text = hide_view_by_id(text, "app_name")
+        text = hide_view_by_id(text, "dont_have_server")
+        text = text.replace('android:text="@string/tagline"', 'android:text="Configure project"')
+        put(first, text)
+    manual = layout_dir / "manual_project_creator_dialog_layout.xml"
+    if manual.exists():
+        text = txt(manual)
+        text = hide_view_by_id(text, "config_tip")
+        put(manual, text)
+    compact = [
+        ('android:layout_marginVertical="@dimen/margin_extra_small"', 'android:layout_marginVertical="2dp"'),
+        ('android:layout_marginHorizontal="@dimen/margin_standard"', 'android:layout_marginHorizontal="42dp"'),
+        ('android:layout_marginVertical="@dimen/margin_standard"', 'android:layout_marginVertical="6dp"'),
+        ('android:layout_marginStart="@dimen/margin_extra_large"', 'android:layout_marginStart="24dp"'),
+        ('android:layout_marginEnd="@dimen/margin_extra_large"', 'android:layout_marginEnd="24dp"'),
+        ('android:textAppearance="?textAppearanceLabelExtraLarge"', 'android:textAppearance="?textAppearanceTitleMedium"'),
+        ('android:layout_width="wrap_content"\n        android:layout_height="wrap_content"\n        android:layout_marginStart="24dp"', 'android:layout_width="24dp"\n        android:layout_height="24dp"\n        android:layout_marginStart="24dp"'),
+        ('android:layout_width="wrap_content"\n        android:layout_height="wrap_content"\n        android:layout_marginVertical="6dp"', 'android:layout_width="24dp"\n        android:layout_height="24dp"\n        android:layout_marginVertical="6dp"'),
+    ]
+    for name in ["main_menu_button.xml", "start_new_from_button.xml"]:
+        patch_file(layout_dir / name, compact)
 
 
 def patch_kotlin_code(root: Path) -> None:
-    path = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuButton.kt"
-    if path.exists():
-        text = txt(path)
+    menu_button = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuButton.kt"
+    if menu_button.exists():
+        text = txt(menu_button)
         if "import android.graphics.Color" not in text:
             text = text.replace("import android.content.Context\n", "import android.content.Context\nimport android.graphics.Color\n")
         marker = "            binding.name.text = buttonName\n"
         replacement = "            binding.name.text = buttonName\n            binding.name.setTextColor(Color.WHITE)\n            binding.number.setTextColor(Color.WHITE)\n            binding.icon.setColorFilter(Color.WHITE)\n"
         if marker in text and replacement not in text:
             text = text.replace(marker, replacement)
-        put(path, text)
-
+        put(menu_button, text)
+    fragment = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuFragment.kt"
+    if fragment.exists():
+        text = txt(fragment)
+        text = text.replace("requireActivity().title = project.name", "requireActivity().title = \"\"")
+        text = re.sub(
+            r"    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateOptionsMenu",
+            "    override fun onPrepareOptionsMenu(menu: Menu) {\n        menu.findItem(org.odk.collect.android.R.id.projects).isVisible = false\n    }\n\n    override fun onCreateOptionsMenu",
+            text,
+            flags=re.DOTALL,
+        )
+        text = re.sub(
+            r"    private fun initToolbar\(binding: MainMenuBinding\) \{.*?\n    \}\n\n    private fun initMapbox",
+            "    private fun initToolbar(binding: MainMenuBinding) {\n        binding.root.findViewById<View>(org.odk.collect.androidshared.R.id.appBarLayout)?.visibility = View.GONE\n        val toolbar = binding.root.findViewById<Toolbar>(org.odk.collect.androidshared.R.id.toolbar)\n        (requireActivity() as AppCompatActivity).setSupportActionBar(toolbar)\n    }\n\n    private fun initMapbox",
+            text,
+            flags=re.DOTALL,
+        )
+        put(fragment, text)
     first = root / "collect_app/src/main/java/org/odk/collect/android/activities/FirstLaunchActivity.kt"
     if first.exists():
         text = txt(first)
@@ -349,46 +361,47 @@ def patch_kotlin_code(root: Path) -> None:
             text,
             flags=re.DOTALL,
         )
+        if "configureViaQrButton.visibility = View.GONE" not in text:
+            text = text.replace("            configureViaQrButton.setOnClickListener {", "            configureViaQrButton.visibility = View.GONE\n            configureViaQrButton.setOnClickListener {")
         if "dontHaveServer.visibility = View.GONE" not in text:
             text = text.replace("            dontHaveServer.apply {", "            dontHaveServer.visibility = View.GONE\n            dontHaveServer.apply {")
         put(first, text)
+    manual = root / "collect_app/src/main/java/org/odk/collect/android/projects/ManualProjectCreatorDialog.kt"
+    if manual.exists():
+        text = txt(manual)
+        old = """        binding.urlInputText.doOnTextChanged { text, _, _, _ ->
+            binding.addButton.isEnabled = !text.isNullOrBlank()
+        }
 
+        binding.urlInputText.post {
+            softKeyboardController.showSoftKeyboard(binding.urlInputText)
+        }
+"""
+        new = f"""        binding.urlInputText.setText(\"{SERVER_URL}\")
+        binding.url.visibility = View.GONE
+        binding.configTip.visibility = View.GONE
 
-def patch_layouts(root: Path) -> None:
-    layout_dir = root / "collect_app/src/main/res/layout"
+        fun updateAddButtonState() {{
+            binding.addButton.isEnabled = !binding.usernameInputText.text.isNullOrBlank() && !binding.passwordInputText.text.isNullOrBlank()
+        }}
+        binding.usernameInputText.doOnTextChanged {{ _, _, _, _ -> updateAddButtonState() }}
+        binding.passwordInputText.doOnTextChanged {{ _, _, _, _ -> updateAddButtonState() }}
+        updateAddButtonState()
 
-    for path in layout_dir.glob("*.xml"):
-        try:
-            text = txt(path)
-        except UnicodeDecodeError:
-            continue
-        original = text
-        text = patch_known_text_colours(text)
-        if text != original:
-            put(path, text)
-
-    main_menu = layout_dir / "main_menu.xml"
-    if main_menu.exists():
-        text = txt(main_menu)
-        text = hide_textview_by_id(text, "app_name")
-        text = hide_textview_by_id(text, "version_sha")
-        text = text.replace('android:paddingBottom="@dimen/margin_standard"', 'android:paddingBottom="0dp"')
-        put(main_menu, text)
-
-    compact = [
-        ('android:layout_marginVertical="@dimen/margin_extra_small"', 'android:layout_marginVertical="2dp"'),
-        ('android:layout_marginHorizontal="@dimen/margin_standard"', 'android:layout_marginHorizontal="32dp"'),
-        ('android:layout_marginVertical="@dimen/margin_standard"', 'android:layout_marginVertical="6dp"'),
-        ('android:layout_marginStart="@dimen/margin_extra_large"', 'android:layout_marginStart="24dp"'),
-        ('android:layout_marginEnd="@dimen/margin_extra_large"', 'android:layout_marginEnd="24dp"'),
-        ('android:textAppearance="?textAppearanceLabelExtraLarge"', 'android:textAppearance="?textAppearanceTitleMedium"'),
-        ('android:layout_width="wrap_content"\n        android:layout_height="wrap_content"\n        android:layout_marginStart="24dp"', 'android:layout_width="24dp"\n        android:layout_height="24dp"\n        android:layout_marginStart="24dp"'),
-        ('android:layout_width="wrap_content"\n        android:layout_height="wrap_content"\n        android:layout_marginVertical="6dp"', 'android:layout_width="24dp"\n        android:layout_height="24dp"\n        android:layout_marginVertical="6dp"'),
-    ]
-    for name in ["main_menu_button.xml", "start_new_from_button.xml"]:
-        patch_file(layout_dir / name, compact)
-
-    patch_first_launch_layout(layout_dir)
+        binding.usernameInputText.post {{
+            softKeyboardController.showSoftKeyboard(binding.usernameInputText)
+        }}
+"""
+        text = text.replace(old, new)
+        put(manual, text)
+    generator = root / "collect_app/src/main/java/org/odk/collect/android/configure/qr/AppConfigurationGenerator.kt"
+    if generator.exists():
+        text = txt(generator)
+        text = text.replace(
+            "put(AppConfigurationKeys.PROJECT, JSONObject())",
+            "put(AppConfigurationKeys.PROJECT, JSONObject().apply {\n                put(AppConfigurationKeys.PROJECT_NAME, \"Child-Care Thrive\")\n                put(AppConfigurationKeys.PROJECT_ICON, \"C\")\n                put(AppConfigurationKeys.PROJECT_COLOR, \"#0B6F8A\")\n            })",
+        )
+        put(generator, text)
 
 
 def validate_xml_resources(root: Path) -> None:
@@ -418,7 +431,7 @@ def main() -> None:
     patch_layouts(root)
     patch_kotlin_code(root)
     validate_xml_resources(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Startup uses child_care_startup.png. App splash/background uses child_care_splash.png. Light theme is forced. Background wallpaper is inset to avoid logo clipping. Dialogs are forced white with dark text. Main-menu button text/icons are forced white in Kotlin instead of unsafe XML injection. XML is validated before Gradle runs.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Main app screens use plain white backgrounds for readability. Branded background is limited to first-launch and main menu. QR setup is hidden, manual setup is used with hidden prefilled server URL. Main-menu project/server row is hidden.\n")
     print("Child-Care Thrive branding patch complete")
 
 
