@@ -322,6 +322,68 @@ def patch_layouts(root: Path) -> None:
         patch_file(layout_dir / name, compact)
 
 
+def patch_preferences_xml(root: Path) -> None:
+    xml_dir = root / "collect_app/src/main/res/xml"
+    project = xml_dir / "project_preferences.xml"
+    if project.exists():
+        put(project, """<!-- Child-Care Thrive restricted settings view -->
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    android:title="@string/project_settings">
+
+    <Preference
+        android:icon="@drawable/ic_outline_color_lens_accent_24"
+        android:key="project_display"
+        android:title="@string/project_display_title"
+        android:summary="@string/project_display_subtext" />
+
+    <Preference
+        android:icon="@drawable/ic_outline_phonelink_setup_accent_24"
+        android:key="user_interface"
+        android:title="@string/client"
+        android:summary="@string/user_interface_settings_subtext" />
+
+    <Preference
+        android:icon="@drawable/ic_outline_map_accent_24"
+        android:key="maps"
+        android:title="@string/maps"
+        android:summary="@string/maps_settings_subtext" />
+
+    <Preference
+        android:icon="@drawable/ic_outline_assignment_accent_24"
+        android:key="form_management"
+        android:title="@string/form_management_preferences"
+        android:summary="@string/form_management_settings_subtext" />
+
+    <Preference
+        android:icon="@drawable/ic_outline_face_accent_24"
+        android:key="user_and_device_identity"
+        android:title="@string/user_and_device_identity_title"
+        android:summary="@string/user_and_device_identity_settings_subtext" />
+
+    <Preference
+        android:icon="@drawable/ic_outline_warning_accent_24"
+        android:key="experimental"
+        android:title="@string/experimental" />
+</PreferenceScreen>
+""")
+    identity = xml_dir / "identity_preferences.xml"
+    if identity.exists():
+        put(identity, """<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:title="@string/user_and_device_identity_title">
+
+    <Preference
+        android:key="form_metadata"
+        android:summary="@string/form_metadata_summary"
+        android:title="@string/form_metadata"
+        app:iconSpaceReserved="false"
+        app:allowDividerAbove="false"
+        app:allowDividerBelow="false" />
+</PreferenceScreen>
+""")
+
+
 def patch_kotlin_code(root: Path) -> None:
     menu_button = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuButton.kt"
     if menu_button.exists():
@@ -333,6 +395,35 @@ def patch_kotlin_code(root: Path) -> None:
         if marker in text and replacement not in text:
             text = text.replace(marker, replacement)
         put(menu_button, text)
+
+    view_model = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuViewModel.kt"
+    if view_model.exists():
+        text = txt(view_model)
+        old = """    fun refreshInstances() {
+        scheduler.immediate<Any?>({
+            InstanceDiskSynchronizer(settingsProvider).doInBackground()
+            instancesDataService.update(projectsDataService.requireCurrentProject().uuid)
+            null
+        }) { }
+    }
+"""
+        new = """    fun refreshInstances() {
+        scheduler.immediate<Any?>({
+            try {
+                InstanceDiskSynchronizer(settingsProvider).doInBackground()
+            } catch (_: Exception) {
+                // Ignore corrupt legacy draft/import records so the branded app doesn't crash on launch.
+            } catch (_: Error) {
+                // Ignore corrupt legacy draft/import records so the branded app doesn't crash on launch.
+            }
+            instancesDataService.update(projectsDataService.requireCurrentProject().uuid)
+            null
+        }) { }
+    }
+"""
+        text = text.replace(old, new)
+        put(view_model, text)
+
     fragment = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuFragment.kt"
     if fragment.exists():
         text = txt(fragment)
@@ -350,6 +441,7 @@ def patch_kotlin_code(root: Path) -> None:
             flags=re.DOTALL,
         )
         put(fragment, text)
+
     first = root / "collect_app/src/main/java/org/odk/collect/android/activities/FirstLaunchActivity.kt"
     if first.exists():
         text = txt(first)
@@ -366,6 +458,7 @@ def patch_kotlin_code(root: Path) -> None:
         if "dontHaveServer.visibility = View.GONE" not in text:
             text = text.replace("            dontHaveServer.apply {", "            dontHaveServer.visibility = View.GONE\n            dontHaveServer.apply {")
         put(first, text)
+
     manual = root / "collect_app/src/main/java/org/odk/collect/android/projects/ManualProjectCreatorDialog.kt"
     if manual.exists():
         text = txt(manual)
@@ -394,14 +487,52 @@ def patch_kotlin_code(root: Path) -> None:
 """
         text = text.replace(old, new)
         put(manual, text)
+
     generator = root / "collect_app/src/main/java/org/odk/collect/android/configure/qr/AppConfigurationGenerator.kt"
     if generator.exists():
         text = txt(generator)
+        text = text.replace(
+            "put(ProjectKeys.KEY_PASSWORD, password)",
+            "put(ProjectKeys.KEY_PASSWORD, password)\n            put(ProjectKeys.KEY_ANALYTICS, false)",
+        )
         text = text.replace(
             "put(AppConfigurationKeys.PROJECT, JSONObject())",
             "put(AppConfigurationKeys.PROJECT, JSONObject().apply {\n                put(AppConfigurationKeys.PROJECT_NAME, \"Child-Care Thrive\")\n                put(AppConfigurationKeys.PROJECT_ICON, \"C\")\n                put(AppConfigurationKeys.PROJECT_COLOR, \"#0B6F8A\")\n            })",
         )
         put(generator, text)
+
+    defaults = root / "collect_app/src/main/java/org/odk/collect/android/preferences/Defaults.kt"
+    if defaults.exists():
+        text = txt(defaults)
+        text = text.replace('hashMap[ProjectKeys.KEY_SERVER_URL] = "https://kc.kobotoolbox.org/kobodemouser"', f'hashMap[ProjectKeys.KEY_SERVER_URL] = "{SERVER_URL}"')
+        text = text.replace('hashMap[ProjectKeys.KEY_ANALYTICS] = true', 'hashMap[ProjectKeys.KEY_ANALYTICS] = false')
+        put(defaults, text)
+
+    identity = root / "collect_app/src/main/java/org/odk/collect/android/preferences/screens/IdentityPreferencesFragment.kt"
+    if identity.exists():
+        text = txt(identity)
+        marker = "        DaggerUtils.getComponent(context).inject(this)\n"
+        replacement = "        DaggerUtils.getComponent(context).inject(this)\n        analytics.setAnalyticsCollectionEnabled(false)\n"
+        if marker in text and replacement not in text:
+            text = text.replace(marker, replacement)
+        put(identity, text)
+
+    prefs = root / "collect_app/src/main/java/org/odk/collect/android/preferences/screens/ProjectPreferencesFragment.kt"
+    if prefs.exists():
+        text = txt(prefs)
+        text = re.sub(
+            r"    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateView",
+            "    override fun onPrepareOptionsMenu(menu: Menu) {\n        menu.findItem(R.id.menu_locked).isVisible = false\n        menu.findItem(R.id.menu_unlocked).isVisible = false\n    }\n\n    override fun onCreateView",
+            text,
+            flags=re.DOTALL,
+        )
+        put(prefs, text)
+
+    synchronizer = root / "collect_app/src/main/java/org/odk/collect/android/instancemanagement/InstanceDiskSynchronizer.java"
+    if synchronizer.exists():
+        text = txt(synchronizer)
+        text = text.replace("} catch (IOException | EncryptionException e) {", "} catch (Exception | Error e) {")
+        put(synchronizer, text)
 
 
 def validate_xml_resources(root: Path) -> None:
@@ -429,9 +560,10 @@ def main() -> None:
     patch_themes(root)
     patch_button_backgrounds(root)
     patch_layouts(root)
+    patch_preferences_xml(root)
     patch_kotlin_code(root)
     validate_xml_resources(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Main app screens use plain white backgrounds for readability. Branded background is limited to first-launch and main menu. QR setup is hidden, manual setup is used with hidden prefilled server URL. Main-menu project/server row is hidden.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Normal app screens use plain white backgrounds. Branded background is limited to first-launch and main menu. QR setup is hidden, manual setup is used with hidden prefilled server URL. Server/protected settings and analytics checkbox are hidden; analytics defaults to disabled. Draft refresh/import errors are caught so corrupt legacy drafts do not crash the app.\n")
     print("Child-Care Thrive branding patch complete")
 
 
