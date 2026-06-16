@@ -13,6 +13,8 @@ PACKAGE_ID = "za.co.childcarethrive.collect"
 BRAND_LINE = "Child-Care Thrive powered by HIV Survivors & Partners Network"
 APK_BASENAME = "Child-Care-Thrive-Collect"
 SERVER_URL = "https://kf.kobotoolbox.org"
+FORMS_AUTHORITY = f"{PACKAGE_ID}.provider.odk.forms"
+INSTANCES_AUTHORITY = f"{PACKAGE_ID}.provider.odk.instances"
 REQUIRE_ASSETS = os.getenv("REQUIRE_BRANDING_ASSETS", "true").lower() not in {"0", "false", "no"}
 
 LOGO_XML = """<?xml version="1.0" encoding="utf-8"?>
@@ -108,11 +110,23 @@ def patch_build(root: Path) -> None:
 
 def patch_manifest(root: Path) -> None:
     patch_file(root / "collect_app/src/main/AndroidManifest.xml", [
-        ("org.koboc.collect.android.provider.odk.forms", f"{PACKAGE_ID}.provider.odk.forms"),
-        ("org.koboc.collect.android.provider.odk.instances", f"{PACKAGE_ID}.provider.odk.instances"),
+        ("org.koboc.collect.android.provider.odk.forms", FORMS_AUTHORITY),
+        ("org.koboc.collect.android.provider.odk.instances", INSTANCES_AUTHORITY),
         ("android:label=\"ODK Form\"", f"android:label=\"{APP_NAME} Form\""),
         ('android:icon="@mipmap/ic_launcher"', 'android:icon="@drawable/child_care_thrive_logo"'),
         ('android:roundIcon="@mipmap/ic_launcher_round"', 'android:roundIcon="@drawable/child_care_thrive_logo"'),
+    ])
+
+
+def patch_provider_contracts(root: Path) -> None:
+    # The manifest authorities and the content URI contract constants must match. If they don't,
+    # main-menu counts can read directly from repositories while Drafts/Ready/Sent lists query a
+    # non-existent content provider, producing the “count exists but list is empty/crashes” behaviour.
+    patch_file(root / "collect_app/src/main/java/org/odk/collect/android/external/FormsContract.java", [
+        ('static final String AUTHORITY = "org.koboc.collect.android.provider.odk.forms";', f'static final String AUTHORITY = "{FORMS_AUTHORITY}";'),
+    ])
+    patch_file(root / "collect_app/src/main/java/org/odk/collect/android/external/InstancesContract.java", [
+        ('public static final String AUTHORITY = "org.koboc.collect.android.provider.odk.instances";', f'public static final String AUTHORITY = "{INSTANCES_AUTHORITY}";'),
     ])
 
 
@@ -326,46 +340,11 @@ def patch_preferences_xml(root: Path) -> None:
     xml_dir = root / "collect_app/src/main/res/xml"
     project = xml_dir / "project_preferences.xml"
     if project.exists():
-        put(project, """<!-- Child-Care Thrive restricted settings view -->
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    android:title="@string/project_settings">
-
-    <Preference
-        android:icon="@drawable/ic_outline_color_lens_accent_24"
-        android:key="project_display"
-        android:title="@string/project_display_title"
-        android:summary="@string/project_display_subtext" />
-
-    <Preference
-        android:icon="@drawable/ic_outline_phonelink_setup_accent_24"
-        android:key="user_interface"
-        android:title="@string/client"
-        android:summary="@string/user_interface_settings_subtext" />
-
-    <Preference
-        android:icon="@drawable/ic_outline_map_accent_24"
-        android:key="maps"
-        android:title="@string/maps"
-        android:summary="@string/maps_settings_subtext" />
-
-    <Preference
-        android:icon="@drawable/ic_outline_assignment_accent_24"
-        android:key="form_management"
-        android:title="@string/form_management_preferences"
-        android:summary="@string/form_management_settings_subtext" />
-
-    <Preference
-        android:icon="@drawable/ic_outline_face_accent_24"
-        android:key="user_and_device_identity"
-        android:title="@string/user_and_device_identity_title"
-        android:summary="@string/user_and_device_identity_settings_subtext" />
-
-    <Preference
-        android:icon="@drawable/ic_outline_warning_accent_24"
-        android:key="experimental"
-        android:title="@string/experimental" />
-</PreferenceScreen>
-""")
+        text = txt(project)
+        if 'android:key="protected_category"' not in text:
+            text = text.replace('<PreferenceCategory\n        android:title="@string/protected_settings"', '<PreferenceCategory\n        android:key="protected_category"\n        android:title="@string/protected_settings"')
+            text = text.replace('<PreferenceCategory\r\n        android:title="@string/protected_settings"', '<PreferenceCategory\r\n        android:key="protected_category"\r\n        android:title="@string/protected_settings"')
+        put(project, text)
     identity = xml_dir / "identity_preferences.xml"
     if identity.exists():
         put(identity, """<?xml version="1.0" encoding="utf-8"?>
@@ -520,6 +499,27 @@ def patch_kotlin_code(root: Path) -> None:
     prefs = root / "collect_app/src/main/java/org/odk/collect/android/preferences/screens/ProjectPreferencesFragment.kt"
     if prefs.exists():
         text = txt(prefs)
+        insert = """        hideChildCareRestrictedPreferences()
+"""
+        if insert not in text:
+            text = text.replace("        setPreferencesFromResource(R.xml.project_preferences, rootKey)\n", "        setPreferencesFromResource(R.xml.project_preferences, rootKey)\n" + insert)
+        helper = """
+    private fun hideChildCareRestrictedPreferences() {
+        listOf(
+            PROTOCOL_PREFERENCE_KEY,
+            UNLOCK_PROTECTED_SETTINGS_PREFERENCE_KEY,
+            CHANGE_ADMIN_PASSWORD_PREFERENCE_KEY,
+            PROJECT_MANAGEMENT_PREFERENCE_KEY,
+            ACCESS_CONTROL_PREFERENCE_KEY,
+            "protected_category"
+        ).forEach { key ->
+            findPreference<Preference>(key)?.isVisible = false
+        }
+    }
+
+"""
+        if "private fun hideChildCareRestrictedPreferences" not in text:
+            text = text.replace("    companion object {", helper + "    companion object {")
         text = re.sub(
             r"    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateView",
             "    override fun onPrepareOptionsMenu(menu: Menu) {\n        menu.findItem(R.id.menu_locked).isVisible = false\n        menu.findItem(R.id.menu_unlocked).isVisible = false\n    }\n\n    override fun onCreateView",
@@ -553,9 +553,10 @@ def main() -> None:
         raise SystemExit("Run from KoboCollect source root")
     ensure_secrets(root)
     patch_build(root)
+    patch_manifest(root)
+    patch_provider_contracts(root)
     patch_brand_colours(root)
     patch_assets(root)
-    patch_manifest(root)
     patch_strings(root)
     patch_themes(root)
     patch_button_backgrounds(root)
@@ -563,7 +564,7 @@ def main() -> None:
     patch_preferences_xml(root)
     patch_kotlin_code(root)
     validate_xml_resources(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Normal app screens use plain white backgrounds. Branded background is limited to first-launch and main menu. QR setup is hidden, manual setup is used with hidden prefilled server URL. Server/protected settings and analytics checkbox are hidden; analytics defaults to disabled. Draft refresh/import errors are caught so corrupt legacy drafts do not crash the app.\n")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Normal app screens use plain white backgrounds. Branded background is limited to first-launch and main menu. QR setup is hidden, manual setup is used with hidden prefilled server URL. Server/protected settings and analytics checkbox are hidden; analytics defaults to disabled. Forms/instances content-provider contracts are patched to match the fork authorities so Drafts/Ready/Sent lists query the same provider used by the manifest. Draft refresh/import errors are caught so corrupt legacy records do not crash the app.\n")
     print("Child-Care Thrive branding patch complete")
 
 
