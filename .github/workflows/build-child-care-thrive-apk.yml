@@ -48,6 +48,8 @@ jobs:
       - name: Apply Child-Care Thrive branding patch
         run: |
           cp scripts/apply_child_care_thrive_branding.py upstream-collect/apply_child_care_thrive_branding.py
+          python3 -c "from pathlib import Path; p=Path('upstream-collect/apply_child_care_thrive_branding.py'); s=p.read_text(); s=s.replace('SERVER_URL = \"https://kf.kobotoolbox.org\"', 'SERVER_URL = \"https://kc.kobotoolbox.org/\"'); p.write_text(s)"
+          grep -n 'SERVER_URL =' upstream-collect/apply_child_care_thrive_branding.py
           cp -R branding upstream-collect/branding
           cd upstream-collect
           python3 apply_child_care_thrive_branding.py
