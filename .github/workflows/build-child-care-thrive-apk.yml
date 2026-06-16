@@ -53,6 +53,8 @@ jobs:
           cp -R branding upstream-collect/branding
           cd upstream-collect
           python3 apply_child_care_thrive_branding.py
+          python3 -c "from pathlib import Path; p=Path('collect_app/src/main/java/org/odk/collect/android/projects/ManualProjectCreatorDialog.kt'); s=p.read_text(); s=s.replace('if (!Validator.isUrlValid(binding.urlInputText.text?.trim().toString())) {', 'if (false) {'); s=s.replace('binding.urlInputText.text?.trim().toString(),\n                binding.usernameInputText', '\"https://kc.kobotoolbox.org/\",\n                binding.usernameInputText'); p.write_text(s)"
+          grep -R "https://kf.kobotoolbox.org" collect_app/src/main/java collect_app/src/main/res -n && exit 1 || true
           echo "Generated/brand Android resources:"
           find collect_app/src/main/res -type f \( -name '*child_care*' -o -name 'ic_launcher*' \) | sort | head -200
           echo "Remaining Kobo/ODK labels after patch, for review only:"
