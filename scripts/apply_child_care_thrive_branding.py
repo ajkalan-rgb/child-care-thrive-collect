@@ -12,7 +12,7 @@ APP_NAME = "Child-Care Thrive"
 PACKAGE_ID = "za.co.childcarethrive.collect"
 BRAND_LINE = "Child-Care Thrive powered by HIV Survivors & Partners Network"
 APK_BASENAME = "Child-Care-Thrive-Collect"
-SERVER_URL = "https://kf.kobotoolbox.org"
+SERVER_URL = "https://kc.kobotoolbox.org/"
 FORMS_AUTHORITY = f"{PACKAGE_ID}.provider.odk.forms"
 INSTANCES_AUTHORITY = f"{PACKAGE_ID}.provider.odk.instances"
 REQUIRE_ASSETS = os.getenv("REQUIRE_BRANDING_ASSETS", "true").lower() not in {"0", "false", "no"}
@@ -35,13 +35,25 @@ def put(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def patch_file(path: Path, replacements: list[tuple[str, str]]) -> None:
+def replace(path: Path, pairs: list[tuple[str, str]]) -> None:
     if not path.exists():
         return
     text = txt(path)
     original = text
-    for old, new in replacements:
+    for old, new in pairs:
         text = text.replace(old, new)
+    if text != original:
+        put(path, text)
+        print(f"patched {path}")
+
+
+def regex_replace(path: Path, pairs: list[tuple[str, str]]) -> None:
+    if not path.exists():
+        return
+    text = txt(path)
+    original = text
+    for pattern, replacement in pairs:
+        text = re.sub(pattern, replacement, text, flags=re.DOTALL)
     if text != original:
         put(path, text)
         print(f"patched {path}")
@@ -50,9 +62,9 @@ def patch_file(path: Path, replacements: list[tuple[str, str]]) -> None:
 def find_asset(root: Path, names: list[str]) -> Path | None:
     for base in [root / "branding", root.parent / "branding", Path.cwd() / "branding"]:
         for name in names:
-            path = base / name
-            if path.exists():
-                return path
+            candidate = base / name
+            if candidate.exists():
+                return candidate
     return None
 
 
@@ -99,7 +111,9 @@ THOUSAND_MEDIA_FILE_ENTITY_LIST_PROJECT_URL=
 
 
 def patch_build(root: Path) -> None:
-    path = root / "collect_app" / "build.gradle"
+    path = root / "collect_app/build.gradle"
+    if not path.exists():
+        return
     text = txt(path)
     text = re.sub(r"applicationId\(['\"][^'\"]+['\"]\)", f"applicationId('{PACKAGE_ID}')", text)
     text = text.replace("archivesBaseName = 'ODK-Collect'", f"archivesBaseName = '{APK_BASENAME}'")
@@ -108,24 +122,18 @@ def patch_build(root: Path) -> None:
     put(path, text)
 
 
-def patch_manifest(root: Path) -> None:
-    patch_file(root / "collect_app/src/main/AndroidManifest.xml", [
+def patch_manifest_and_contracts(root: Path) -> None:
+    replace(root / "collect_app/src/main/AndroidManifest.xml", [
         ("org.koboc.collect.android.provider.odk.forms", FORMS_AUTHORITY),
         ("org.koboc.collect.android.provider.odk.instances", INSTANCES_AUTHORITY),
         ("android:label=\"ODK Form\"", f"android:label=\"{APP_NAME} Form\""),
         ('android:icon="@mipmap/ic_launcher"', 'android:icon="@drawable/child_care_thrive_logo"'),
         ('android:roundIcon="@mipmap/ic_launcher_round"', 'android:roundIcon="@drawable/child_care_thrive_logo"'),
     ])
-
-
-def patch_provider_contracts(root: Path) -> None:
-    # The manifest authorities and the content URI contract constants must match. If they don't,
-    # main-menu counts can read directly from repositories while Drafts/Ready/Sent lists query a
-    # non-existent content provider, producing the “count exists but list is empty/crashes” behaviour.
-    patch_file(root / "collect_app/src/main/java/org/odk/collect/android/external/FormsContract.java", [
+    replace(root / "collect_app/src/main/java/org/odk/collect/android/external/FormsContract.java", [
         ('static final String AUTHORITY = "org.koboc.collect.android.provider.odk.forms";', f'static final String AUTHORITY = "{FORMS_AUTHORITY}";'),
     ])
-    patch_file(root / "collect_app/src/main/java/org/odk/collect/android/external/InstancesContract.java", [
+    replace(root / "collect_app/src/main/java/org/odk/collect/android/external/InstancesContract.java", [
         ('public static final String AUTHORITY = "org.koboc.collect.android.provider.odk.instances";', f'public static final String AUTHORITY = "{INSTANCES_AUTHORITY}";'),
     ])
 
@@ -149,7 +157,7 @@ def patch_strings(root: Path) -> None:
 """)
 
 
-def patch_brand_colours(root: Path) -> None:
+def patch_colours(root: Path) -> None:
     values = root / "collect_app/src/main/res/values"
     put(values / "child_care_thrive_palette.xml", """<?xml version="1.0" encoding="utf-8"?>
 <resources>
@@ -160,7 +168,6 @@ def patch_brand_colours(root: Path) -> None:
     <color name="child_care_dark_button">#263134</color>
 </resources>
 """)
-
     colors = values / "colors.xml"
     if colors.exists():
         text = txt(colors)
@@ -190,19 +197,17 @@ def patch_assets(root: Path) -> None:
         raise SystemExit("Missing branding/child_care_icon.png")
     if REQUIRE_ASSETS and not startup:
         raise SystemExit("Missing branding/child_care_startup.png")
-    if icon:
-        copy_asset(icon, drawable, "child_care_thrive_logo")
-    else:
+    logo_ref = copy_asset(icon, drawable, "child_care_thrive_logo") if icon else "@drawable/child_care_thrive_logo"
+    if not icon:
         put(drawable / "child_care_thrive_logo.xml", LOGO_XML)
-    startup_ref = copy_asset(startup, drawable, "child_care_thrive_startup") if startup else "@drawable/child_care_thrive_logo"
+    startup_ref = copy_asset(startup, drawable, "child_care_thrive_startup") if startup else logo_ref
     splash_ref = copy_asset(splash, drawable, "child_care_thrive_app_background_image") if splash else startup_ref
     put(drawable / "child_care_thrive_startup_background.xml", bitmap_background(startup_ref))
     put(drawable / "child_care_thrive_app_background.xml", bitmap_background(splash_ref))
     for folder in (root / "collect_app/src/main/res").glob("mipmap-*"):
         for name in ["ic_launcher.xml", "ic_launcher_round.xml"]:
-            path = folder / name
-            if path.exists():
-                path.unlink()
+            if (folder / name).exists():
+                (folder / name).unlink()
 
 
 def set_style_item(body: str, item: str, value: str) -> str:
@@ -215,12 +220,12 @@ def set_style_item(body: str, item: str, value: str) -> str:
 
 def patch_style(text: str, style: str, updates: dict[str, str]) -> str:
     pattern = rf"(<style name=\"{re.escape(style)}\"[^>]*>)(.*?)(</style>)"
-    def replace(match: re.Match[str]) -> str:
+    def repl(match: re.Match[str]) -> str:
         body = match.group(2)
         for key, value in updates.items():
             body = set_style_item(body, key, value)
         return match.group(1) + body + match.group(3)
-    return re.sub(pattern, replace, text, flags=re.DOTALL)
+    return re.sub(pattern, repl, text, flags=re.DOTALL)
 
 
 def patch_themes(root: Path) -> None:
@@ -259,16 +264,8 @@ def patch_themes(root: Path) -> None:
             continue
         original = text
         text = text.replace('parent="Theme.Material3.DayNight.NoActionBar"', 'parent="Theme.Material3.Light.NoActionBar"')
-        text = patch_style(text, "Theme.Collect.SplashScreen", {
-            "windowSplashScreenAnimatedIcon": "@drawable/child_care_thrive_logo",
-            "windowSplashScreenBackground": "@android:color/white",
-            "android:windowBackground": "@drawable/child_care_thrive_startup_background",
-            **app_updates,
-        })
-        text = patch_style(text, "Theme.Collect", {
-            "android:windowBackground": "@android:color/white",
-            **app_updates,
-        })
+        text = patch_style(text, "Theme.Collect.SplashScreen", {"windowSplashScreenAnimatedIcon": "@drawable/child_care_thrive_logo", "windowSplashScreenBackground": "@android:color/white", "android:windowBackground": "@drawable/child_care_thrive_startup_background", **app_updates})
+        text = patch_style(text, "Theme.Collect", {"android:windowBackground": "@android:color/white", **app_updates})
         text = patch_style(text, "Theme.Collect.Dialog.Alert", dialog_updates)
         text = patch_style(text, "Theme.Collect.BottomSheet", dialog_updates)
         if text != original:
@@ -277,29 +274,25 @@ def patch_themes(root: Path) -> None:
 
 def hide_view_by_id(xml: str, view_id: str) -> str:
     pattern = rf"(<[\w.]+\b(?=[^>]*android:id=\"@\+id/{re.escape(view_id)}\")[^>]*?)(\s*/?>)"
-    def replace(match: re.Match[str]) -> str:
+    def repl(match: re.Match[str]) -> str:
         block, close = match.group(1), match.group(2)
         if "android:visibility=" not in block:
             block += '\n                android:visibility="gone"'
         if "android:layout_height=" in block:
             block = re.sub(r'android:layout_height="[^"]+"', 'android:layout_height="0dp"', block)
         return block + close
-    return re.sub(pattern, replace, xml, flags=re.DOTALL)
+    return re.sub(pattern, repl, xml, flags=re.DOTALL)
 
 
 def patch_button_backgrounds(root: Path) -> None:
     drawable = root / "collect_app/src/main/res/drawable"
-    patch_file(drawable / "main_menu_button_background.xml", [
-        ('<solid android:color="?colorSurfaceContainerLow" />', '<solid android:color="@color/child_care_dark_button" />'),
-    ])
-    patch_file(drawable / "start_new_form_button_background.xml", [
-        ('<solid android:color="?colorPrimary" />', '<solid android:color="@color/child_care_primary_button" />'),
-    ])
+    replace(drawable / "main_menu_button_background.xml", [('<solid android:color="?colorSurfaceContainerLow" />', '<solid android:color="@color/child_care_dark_button" />')])
+    replace(drawable / "start_new_form_button_background.xml", [('<solid android:color="?colorPrimary" />', '<solid android:color="@color/child_care_primary_button" />')])
 
 
 def patch_layouts(root: Path) -> None:
-    layout_dir = root / "collect_app/src/main/res/layout"
-    main_menu = layout_dir / "main_menu.xml"
+    layout = root / "collect_app/src/main/res/layout"
+    main_menu = layout / "main_menu.xml"
     if main_menu.exists():
         text = txt(main_menu)
         text = text.replace('android:layout_height="match_parent">', 'android:layout_height="match_parent"\n    android:background="@drawable/child_care_thrive_app_background">', 1)
@@ -307,20 +300,17 @@ def patch_layouts(root: Path) -> None:
         text = hide_view_by_id(text, "app_name")
         text = hide_view_by_id(text, "version_sha")
         put(main_menu, text)
-    first = layout_dir / "first_launch_layout.xml"
+    first = layout / "first_launch_layout.xml"
     if first.exists():
         text = txt(first)
         text = text.replace('android:fillViewport="true">', 'android:fillViewport="true"\n    android:background="@drawable/child_care_thrive_app_background">')
-        text = hide_view_by_id(text, "logo")
-        text = hide_view_by_id(text, "configure_via_qr_button")
-        text = hide_view_by_id(text, "app_name")
-        text = hide_view_by_id(text, "dont_have_server")
+        for view_id in ["logo", "configure_via_qr_button", "app_name", "dont_have_server"]:
+            text = hide_view_by_id(text, view_id)
         text = text.replace('android:text="@string/tagline"', 'android:text="Configure project"')
         put(first, text)
-    manual = layout_dir / "manual_project_creator_dialog_layout.xml"
+    manual = layout / "manual_project_creator_dialog_layout.xml"
     if manual.exists():
-        text = txt(manual)
-        text = hide_view_by_id(text, "config_tip")
+        text = hide_view_by_id(txt(manual), "config_tip")
         put(manual, text)
     compact = [
         ('android:layout_marginVertical="@dimen/margin_extra_small"', 'android:layout_marginVertical="2dp"'),
@@ -333,7 +323,7 @@ def patch_layouts(root: Path) -> None:
         ('android:layout_width="wrap_content"\n        android:layout_height="wrap_content"\n        android:layout_marginVertical="6dp"', 'android:layout_width="24dp"\n        android:layout_height="24dp"\n        android:layout_marginVertical="6dp"'),
     ]
     for name in ["main_menu_button.xml", "start_new_from_button.xml"]:
-        patch_file(layout_dir / name, compact)
+        replace(layout / name, compact)
 
 
 def patch_preferences_xml(root: Path) -> None:
@@ -343,22 +333,12 @@ def patch_preferences_xml(root: Path) -> None:
         text = txt(project)
         if 'android:key="protected_category"' not in text:
             text = text.replace('<PreferenceCategory\n        android:title="@string/protected_settings"', '<PreferenceCategory\n        android:key="protected_category"\n        android:title="@string/protected_settings"')
-            text = text.replace('<PreferenceCategory\r\n        android:title="@string/protected_settings"', '<PreferenceCategory\r\n        android:key="protected_category"\r\n        android:title="@string/protected_settings"')
         put(project, text)
     identity = xml_dir / "identity_preferences.xml"
     if identity.exists():
         put(identity, """<?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:title="@string/user_and_device_identity_title">
-
-    <Preference
-        android:key="form_metadata"
-        android:summary="@string/form_metadata_summary"
-        android:title="@string/form_metadata"
-        app:iconSpaceReserved="false"
-        app:allowDividerAbove="false"
-        app:allowDividerBelow="false" />
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:title="@string/user_and_device_identity_title">
+    <Preference android:key="form_metadata" android:summary="@string/form_metadata_summary" android:title="@string/form_metadata" app:iconSpaceReserved="false" app:allowDividerAbove="false" app:allowDividerBelow="false" />
 </PreferenceScreen>
 """)
 
@@ -370,55 +350,39 @@ def patch_kotlin_code(root: Path) -> None:
         if "import android.graphics.Color" not in text:
             text = text.replace("import android.content.Context\n", "import android.content.Context\nimport android.graphics.Color\n")
         marker = "            binding.name.text = buttonName\n"
-        replacement = "            binding.name.text = buttonName\n            binding.name.setTextColor(Color.WHITE)\n            binding.number.setTextColor(Color.WHITE)\n            binding.icon.setColorFilter(Color.WHITE)\n"
-        if marker in text and replacement not in text:
-            text = text.replace(marker, replacement)
+        injected = "            binding.name.text = buttonName\n            binding.name.setTextColor(Color.WHITE)\n            binding.number.setTextColor(Color.WHITE)\n            binding.icon.setColorFilter(Color.WHITE)\n"
+        if marker in text and injected not in text:
+            text = text.replace(marker, injected)
         put(menu_button, text)
 
     view_model = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuViewModel.kt"
     if view_model.exists():
-        text = txt(view_model)
-        old = """    fun refreshInstances() {
+        replace(view_model, [("""    fun refreshInstances() {
         scheduler.immediate<Any?>({
             InstanceDiskSynchronizer(settingsProvider).doInBackground()
             instancesDataService.update(projectsDataService.requireCurrentProject().uuid)
             null
         }) { }
     }
-"""
-        new = """    fun refreshInstances() {
+""", """    fun refreshInstances() {
         scheduler.immediate<Any?>({
             try {
                 InstanceDiskSynchronizer(settingsProvider).doInBackground()
             } catch (_: Exception) {
-                // Ignore corrupt legacy draft/import records so the branded app doesn't crash on launch.
             } catch (_: Error) {
-                // Ignore corrupt legacy draft/import records so the branded app doesn't crash on launch.
             }
             instancesDataService.update(projectsDataService.requireCurrentProject().uuid)
             null
         }) { }
     }
-"""
-        text = text.replace(old, new)
-        put(view_model, text)
+""")])
 
     fragment = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuFragment.kt"
     if fragment.exists():
         text = txt(fragment)
         text = text.replace("requireActivity().title = project.name", "requireActivity().title = \"\"")
-        text = re.sub(
-            r"    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateOptionsMenu",
-            "    override fun onPrepareOptionsMenu(menu: Menu) {\n        menu.findItem(org.odk.collect.android.R.id.projects).isVisible = false\n    }\n\n    override fun onCreateOptionsMenu",
-            text,
-            flags=re.DOTALL,
-        )
-        text = re.sub(
-            r"    private fun initToolbar\(binding: MainMenuBinding\) \{.*?\n    \}\n\n    private fun initMapbox",
-            "    private fun initToolbar(binding: MainMenuBinding) {\n        binding.root.findViewById<View>(org.odk.collect.androidshared.R.id.appBarLayout)?.visibility = View.GONE\n        val toolbar = binding.root.findViewById<Toolbar>(org.odk.collect.androidshared.R.id.toolbar)\n        (requireActivity() as AppCompatActivity).setSupportActionBar(toolbar)\n    }\n\n    private fun initMapbox",
-            text,
-            flags=re.DOTALL,
-        )
+        text = re.sub(r"    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateOptionsMenu", "    override fun onPrepareOptionsMenu(menu: Menu) {\n        menu.findItem(org.odk.collect.android.R.id.projects).isVisible = false\n    }\n\n    override fun onCreateOptionsMenu", text, flags=re.DOTALL)
+        text = re.sub(r"    private fun initToolbar\(binding: MainMenuBinding\) \{.*?\n    \}\n\n    private fun initMapbox", "    private fun initToolbar(binding: MainMenuBinding) {\n        binding.root.findViewById<View>(org.odk.collect.androidshared.R.id.appBarLayout)?.visibility = View.GONE\n        val toolbar = binding.root.findViewById<Toolbar>(org.odk.collect.androidshared.R.id.toolbar)\n        (requireActivity() as AppCompatActivity).setSupportActionBar(toolbar)\n    }\n\n    private fun initMapbox", text, flags=re.DOTALL)
         put(fragment, text)
 
     first = root / "collect_app/src/main/java/org/odk/collect/android/activities/FirstLaunchActivity.kt"
@@ -426,30 +390,22 @@ def patch_kotlin_code(root: Path) -> None:
         text = txt(first)
         if "import android.view.View" not in text:
             text = text.replace("import android.text.SpannableStringBuilder\n", "import android.text.SpannableStringBuilder\nimport android.view.View\n")
-        text = re.sub(
-            r"\n\s*appName\.text = String\.format\(\s*\"%s %s\",\s*getString\(org\.odk\.collect\.strings\.R\.string\.collect_app_name\),\s*versionInformation\.versionToDisplay\s*\)\s*",
-            "\n            appName.text = \"\"\n            appName.visibility = View.GONE\n",
-            text,
-            flags=re.DOTALL,
-        )
-        if "configureViaQrButton.visibility = View.GONE" not in text:
-            text = text.replace("            configureViaQrButton.setOnClickListener {", "            configureViaQrButton.visibility = View.GONE\n            configureViaQrButton.setOnClickListener {")
-        if "dontHaveServer.visibility = View.GONE" not in text:
-            text = text.replace("            dontHaveServer.apply {", "            dontHaveServer.visibility = View.GONE\n            dontHaveServer.apply {")
+        text = re.sub(r"\n\s*appName\.text = String\.format\(\s*\"%s %s\",\s*getString\(org\.odk\.collect\.strings\.R\.string\.collect_app_name\),\s*versionInformation\.versionToDisplay\s*\)\s*", "\n            appName.text = \"\"\n            appName.visibility = View.GONE\n", text, flags=re.DOTALL)
+        text = text.replace("            configureViaQrButton.setOnClickListener {", "            configureViaQrButton.visibility = View.GONE\n            configureViaQrButton.setOnClickListener {") if "configureViaQrButton.visibility = View.GONE" not in text else text
+        text = text.replace("            dontHaveServer.apply {", "            dontHaveServer.visibility = View.GONE\n            dontHaveServer.apply {") if "dontHaveServer.visibility = View.GONE" not in text else text
         put(first, text)
 
     manual = root / "collect_app/src/main/java/org/odk/collect/android/projects/ManualProjectCreatorDialog.kt"
     if manual.exists():
         text = txt(manual)
-        old = """        binding.urlInputText.doOnTextChanged { text, _, _, _ ->
+        text = text.replace("""        binding.urlInputText.doOnTextChanged { text, _, _, _ ->
             binding.addButton.isEnabled = !text.isNullOrBlank()
         }
 
         binding.urlInputText.post {
             softKeyboardController.showSoftKeyboard(binding.urlInputText)
         }
-"""
-        new = f"""        binding.urlInputText.setText(\"{SERVER_URL}\")
+""", f"""        binding.urlInputText.setText(\"{SERVER_URL}\")
         binding.url.visibility = View.GONE
         binding.configTip.visibility = View.GONE
 
@@ -463,21 +419,16 @@ def patch_kotlin_code(root: Path) -> None:
         binding.usernameInputText.post {{
             softKeyboardController.showSoftKeyboard(binding.usernameInputText)
         }}
-"""
-        text = text.replace(old, new)
+""")
+        text = text.replace("if (!Validator.isUrlValid(binding.urlInputText.text?.trim().toString())) {", f"if (!Validator.isUrlValid(\"{SERVER_URL}\")) {{")
+        text = text.replace("binding.urlInputText.text?.trim().toString(),", f"\"{SERVER_URL}\",")
         put(manual, text)
 
     generator = root / "collect_app/src/main/java/org/odk/collect/android/configure/qr/AppConfigurationGenerator.kt"
     if generator.exists():
         text = txt(generator)
-        text = text.replace(
-            "put(ProjectKeys.KEY_PASSWORD, password)",
-            "put(ProjectKeys.KEY_PASSWORD, password)\n            put(ProjectKeys.KEY_ANALYTICS, false)",
-        )
-        text = text.replace(
-            "put(AppConfigurationKeys.PROJECT, JSONObject())",
-            "put(AppConfigurationKeys.PROJECT, JSONObject().apply {\n                put(AppConfigurationKeys.PROJECT_NAME, \"Child-Care Thrive\")\n                put(AppConfigurationKeys.PROJECT_ICON, \"C\")\n                put(AppConfigurationKeys.PROJECT_COLOR, \"#0B6F8A\")\n            })",
-        )
+        text = text.replace("put(ProjectKeys.KEY_PASSWORD, password)", "put(ProjectKeys.KEY_PASSWORD, password)\n            put(ProjectKeys.KEY_ANALYTICS, false)")
+        text = text.replace("put(AppConfigurationKeys.PROJECT, JSONObject())", "put(AppConfigurationKeys.PROJECT, JSONObject().apply {\n                put(AppConfigurationKeys.PROJECT_NAME, \"Child-Care Thrive\")\n                put(AppConfigurationKeys.PROJECT_ICON, \"C\")\n                put(AppConfigurationKeys.PROJECT_COLOR, \"#0B6F8A\")\n            })")
         put(generator, text)
 
     defaults = root / "collect_app/src/main/java/org/odk/collect/android/preferences/Defaults.kt"
@@ -490,29 +441,18 @@ def patch_kotlin_code(root: Path) -> None:
     identity = root / "collect_app/src/main/java/org/odk/collect/android/preferences/screens/IdentityPreferencesFragment.kt"
     if identity.exists():
         text = txt(identity)
-        marker = "        DaggerUtils.getComponent(context).inject(this)\n"
-        replacement = "        DaggerUtils.getComponent(context).inject(this)\n        analytics.setAnalyticsCollectionEnabled(false)\n"
-        if marker in text and replacement not in text:
-            text = text.replace(marker, replacement)
+        if "analytics.setAnalyticsCollectionEnabled(false)" not in text:
+            text = text.replace("        DaggerUtils.getComponent(context).inject(this)\n", "        DaggerUtils.getComponent(context).inject(this)\n        analytics.setAnalyticsCollectionEnabled(false)\n")
         put(identity, text)
 
     prefs = root / "collect_app/src/main/java/org/odk/collect/android/preferences/screens/ProjectPreferencesFragment.kt"
     if prefs.exists():
         text = txt(prefs)
-        insert = """        hideChildCareRestrictedPreferences()
-"""
-        if insert not in text:
-            text = text.replace("        setPreferencesFromResource(R.xml.project_preferences, rootKey)\n", "        setPreferencesFromResource(R.xml.project_preferences, rootKey)\n" + insert)
+        if "hideChildCareRestrictedPreferences()" not in text:
+            text = text.replace("        setPreferencesFromResource(R.xml.project_preferences, rootKey)\n", "        setPreferencesFromResource(R.xml.project_preferences, rootKey)\n        hideChildCareRestrictedPreferences()\n")
         helper = """
     private fun hideChildCareRestrictedPreferences() {
-        listOf(
-            PROTOCOL_PREFERENCE_KEY,
-            UNLOCK_PROTECTED_SETTINGS_PREFERENCE_KEY,
-            CHANGE_ADMIN_PASSWORD_PREFERENCE_KEY,
-            PROJECT_MANAGEMENT_PREFERENCE_KEY,
-            ACCESS_CONTROL_PREFERENCE_KEY,
-            "protected_category"
-        ).forEach { key ->
+        listOf(PROTOCOL_PREFERENCE_KEY, UNLOCK_PROTECTED_SETTINGS_PREFERENCE_KEY, CHANGE_ADMIN_PASSWORD_PREFERENCE_KEY, PROJECT_MANAGEMENT_PREFERENCE_KEY, ACCESS_CONTROL_PREFERENCE_KEY, "protected_category").forEach { key ->
             findPreference<Preference>(key)?.isVisible = false
         }
     }
@@ -520,23 +460,16 @@ def patch_kotlin_code(root: Path) -> None:
 """
         if "private fun hideChildCareRestrictedPreferences" not in text:
             text = text.replace("    companion object {", helper + "    companion object {")
-        text = re.sub(
-            r"    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateView",
-            "    override fun onPrepareOptionsMenu(menu: Menu) {\n        menu.findItem(R.id.menu_locked).isVisible = false\n        menu.findItem(R.id.menu_unlocked).isVisible = false\n    }\n\n    override fun onCreateView",
-            text,
-            flags=re.DOTALL,
-        )
+        text = re.sub(r"    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateView", "    override fun onPrepareOptionsMenu(menu: Menu) {\n        menu.findItem(R.id.menu_locked).isVisible = false\n        menu.findItem(R.id.menu_unlocked).isVisible = false\n    }\n\n    override fun onCreateView", text, flags=re.DOTALL)
         put(prefs, text)
 
-    synchronizer = root / "collect_app/src/main/java/org/odk/collect/android/instancemanagement/InstanceDiskSynchronizer.java"
-    if synchronizer.exists():
-        text = txt(synchronizer)
-        text = text.replace("} catch (IOException | EncryptionException e) {", "} catch (Exception | Error e) {")
-        put(synchronizer, text)
+    sync = root / "collect_app/src/main/java/org/odk/collect/android/instancemanagement/InstanceDiskSynchronizer.java"
+    if sync.exists():
+        replace(sync, [("} catch (IOException | EncryptionException e) {", "} catch (Exception | Error e) {")])
 
 
 def validate_xml_resources(root: Path) -> None:
-    errors: list[str] = []
+    errors = []
     for path in (root / "collect_app/src/main/res").rglob("*.xml"):
         try:
             ET.parse(path)
@@ -553,9 +486,8 @@ def main() -> None:
         raise SystemExit("Run from KoboCollect source root")
     ensure_secrets(root)
     patch_build(root)
-    patch_manifest(root)
-    patch_provider_contracts(root)
-    patch_brand_colours(root)
+    patch_manifest_and_contracts(root)
+    patch_colours(root)
     patch_assets(root)
     patch_strings(root)
     patch_themes(root)
@@ -564,8 +496,8 @@ def main() -> None:
     patch_preferences_xml(root)
     patch_kotlin_code(root)
     validate_xml_resources(root)
-    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", "Normal app screens use plain white backgrounds. Branded background is limited to first-launch and main menu. QR setup is hidden, manual setup is used with hidden prefilled server URL. Server/protected settings and analytics checkbox are hidden; analytics defaults to disabled. Forms/instances content-provider contracts are patched to match the fork authorities so Drafts/Ready/Sent lists query the same provider used by the manifest. Draft refresh/import errors are caught so corrupt legacy records do not crash the app.\n")
-    print("Child-Care Thrive branding patch complete")
+    put(root / "CHILD_CARE_THRIVE_BRANDING_APPLIED.md", f"Manual setup is locked to {SERVER_URL}; URL validation and project creation both use this fixed URL. Normal app screens use plain white backgrounds. Branded background is limited to first launch and main menu. Server/protected settings and analytics checkbox are hidden; analytics defaults to disabled. Provider contracts match the fork authorities.\n")
+    print(f"Child-Care Thrive branding patch complete; server URL = {SERVER_URL}")
 
 
 if __name__ == "__main__":
