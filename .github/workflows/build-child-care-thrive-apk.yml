@@ -56,6 +56,7 @@ jobs:
           python3 -c "from pathlib import Path; p=Path('collect_app/src/main/java/org/odk/collect/android/projects/ManualProjectCreatorDialog.kt'); s=p.read_text(); s=s.replace('if (!Validator.isUrlValid(binding.urlInputText.text?.trim().toString())) {', 'if (false) {'); s=s.replace('binding.urlInputText.text?.trim().toString(),\n                binding.usernameInputText', '\"https://kc.kobotoolbox.org/\",\n                binding.usernameInputText'); p.write_text(s)"
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           # Main menu: expose a safe Settings button, not the project/server selector.
           menu = Path('collect_app/src/main/res/menu/main_menu.xml')
@@ -75,23 +76,23 @@ jobs:
           if 'ProjectPreferencesActivity' not in s:
               s = s.replace('import org.odk.collect.android.projects.ProjectSettingsDialog\n', 'import org.odk.collect.android.projects.ProjectSettingsDialog\nimport org.odk.collect.android.preferences.screens.ProjectPreferencesActivity\n')
           s = s.replace('requireActivity().title = project.name', 'requireActivity().title = ""')
-          s = __import__('re').sub(
+          s = re.sub(
               r'    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateOptionsMenu',
               '    override fun onPrepareOptionsMenu(menu: Menu) {\n        val settingsItem = menu.findItem(org.odk.collect.android.R.id.projects)\n        settingsItem.isVisible = true\n        settingsItem.title = getString(org.odk.collect.strings.R.string.project_settings)\n    }\n\n    override fun onCreateOptionsMenu',
               s,
-              flags=__import__('re').DOTALL,
+              flags=re.DOTALL,
           )
-          s = __import__('re').sub(
+          s = re.sub(
               r'        if \(item.itemId == org\.odk\.collect\.android\.R\.id\.projects\) \{.*?\n        \}\n\n        return super\.onOptionsItemSelected\(item\)',
               '        if (item.itemId == org.odk.collect.android.R.id.projects) {\n            startActivity(Intent(requireContext(), ProjectPreferencesActivity::class.java))\n            return true\n        }\n\n        return super.onOptionsItemSelected(item)',
               s,
-              flags=__import__('re').DOTALL,
+              flags=re.DOTALL,
           )
-          s = __import__('re').sub(
+          s = re.sub(
               r'    private fun initToolbar\(binding: MainMenuBinding\) \{.*?\n    \}\n\n    private fun initMapbox',
               '    private fun initToolbar(binding: MainMenuBinding) {\n        val toolbar = binding.root.findViewById<Toolbar>(org.odk.collect.androidshared.R.id.toolbar)\n        (requireActivity() as AppCompatActivity).setSupportActionBar(toolbar)\n        (requireActivity() as AppCompatActivity).supportActionBar?.setDisplayShowTitleEnabled(false)\n    }\n\n    private fun initMapbox',
               s,
-              flags=__import__('re').DOTALL,
+              flags=re.DOTALL,
           )
           mm.write_text(s)
 
@@ -104,6 +105,36 @@ jobs:
             EXPERIMENTAL_PREFERENCE_KEY,
             UNLOCK_PROTECTED_SETTINGS_PREFERENCE_KEY,''')
           prefs.write_text(s)
+
+          # Protected > User Settings screen: never show server or anonymous analytics toggles.
+          user_settings_xml = Path('collect_app/src/main/res/xml/user_settings_access_preferences.xml')
+          s = user_settings_xml.read_text()
+          for key in ['change_server', 'analytics']:
+              s = re.sub(r'\n\s*<CheckBoxPreference\b(?=[^>]*android:key="' + re.escape(key) + r'")[^>]*/>', '', s, flags=re.DOTALL)
+          user_settings_xml.write_text(s)
+
+          # Defaults: server and analytics are protected/disabled, and validation is deferred until finalization.
+          defaults = Path('collect_app/src/main/java/org/odk/collect/android/preferences/Defaults.kt')
+          s = defaults.read_text()
+          s = s.replace('hashMap[ProjectKeys.KEY_CONSTRAINT_BEHAVIOR] = ProjectKeys.CONSTRAINT_BEHAVIOR_ON_SWIPE', 'hashMap[ProjectKeys.KEY_CONSTRAINT_BEHAVIOR] = "on_finalize"')
+          s = s.replace('hashMap[ProjectKeys.KEY_ANALYTICS] = true', 'hashMap[ProjectKeys.KEY_ANALYTICS] = false')
+          if 'defaults[ProtectedProjectKeys.KEY_CHANGE_SERVER] = false' not in s:
+              s = s.replace('''            }
+
+            return defaults''', '''            }
+            defaults[ProtectedProjectKeys.KEY_CHANGE_SERVER] = false
+            defaults[ProtectedProjectKeys.KEY_ANALYTICS] = false
+
+            return defaults''')
+          defaults.write_text(s)
+
+          # Manual project setup: hard-code safe settings into the generated configuration for new projects.
+          generator = Path('collect_app/src/main/java/org/odk/collect/android/configure/qr/AppConfigurationGenerator.kt')
+          s = generator.read_text()
+          if 'ProjectKeys.KEY_CONSTRAINT_BEHAVIOR' not in s.split('return JSONObject().apply')[0]:
+              s = s.replace('put(ProjectKeys.KEY_PASSWORD, password)', 'put(ProjectKeys.KEY_PASSWORD, password)\n            put(ProjectKeys.KEY_ANALYTICS, false)\n            put(ProjectKeys.KEY_CONSTRAINT_BEHAVIOR, "on_finalize")')
+          s = s.replace('put(AppConfigurationKeys.ADMIN, JSONObject())', 'put(AppConfigurationKeys.ADMIN, JSONObject().apply {\n                put(ProtectedProjectKeys.KEY_CHANGE_SERVER, false)\n                put(ProtectedProjectKeys.KEY_ANALYTICS, false)\n            })')
+          generator.write_text(s)
           PY
           grep -R "https://kf.kobotoolbox.org" collect_app/src/main/java collect_app/src/main/res -n && exit 1 || true
           echo "Generated/brand Android resources:"
