@@ -14,6 +14,7 @@ env:
   KOBOCOLLECT_REPO: https://github.com/kobotoolbox/collect.git
   KOBOCOLLECT_REF: master
   REQUIRE_BRANDING_ASSETS: true
+  KOBOTOOLBOX_COLLECT_URL: https://kc.kobotoolbox.org/
 
 jobs:
   build:
