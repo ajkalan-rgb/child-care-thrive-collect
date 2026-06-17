@@ -54,7 +54,6 @@ jobs:
           cd upstream-collect
           cp branding/Child_Care_Thrive_KoboCollect_Background_1080x1920_SAFEZONE.png branding/child_care_splash.png
           python3 apply_child_care_thrive_branding.py
-          python3 -c "from pathlib import Path; p=Path('collect_app/src/main/java/org/odk/collect/android/projects/ManualProjectCreatorDialog.kt'); s=p.read_text(); s=s.replace('if (!Validator.isUrlValid(binding.urlInputText.text?.trim().toString())) {', 'if (false) {'); s=s.replace('binding.urlInputText.text?.trim().toString(),\n                binding.usernameInputText', '\"https://kc.kobotoolbox.org/\",\n                binding.usernameInputText'); p.write_text(s)"
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -73,8 +72,9 @@ jobs:
 
           main_layout = Path('collect_app/src/main/res/layout/main_menu.xml')
           s = main_layout.read_text()
-          s = s.replace('android:layout_marginTop="132dp"', 'android:layout_marginTop="180dp"')
-          s = s.replace('android:layout_marginTop="@dimen/margin_extra_small"', 'android:layout_marginTop="180dp"', 1)
+          s = s.replace('android:layout_marginTop="132dp"', 'android:layout_marginTop="220dp"')
+          s = s.replace('android:layout_marginTop="180dp"', 'android:layout_marginTop="220dp"')
+          s = s.replace('android:layout_marginTop="@dimen/margin_extra_small"', 'android:layout_marginTop="220dp"', 1)
           main_layout.write_text(s)
 
           mm = Path('collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuFragment.kt')
@@ -96,7 +96,7 @@ jobs:
           )
           s = re.sub(
               r'    private fun initToolbar\(binding: MainMenuBinding\) \{.*?\n    \}\n\n    private fun initMapbox',
-              '    private fun initToolbar(binding: MainMenuBinding) {\n        binding.root.findViewById<View>(org.odk.collect.androidshared.R.id.appBarLayout)?.visibility = View.VISIBLE\n        val toolbar = binding.root.findViewById<Toolbar>(org.odk.collect.androidshared.R.id.toolbar)\n        (requireActivity() as AppCompatActivity).setSupportActionBar(toolbar)\n        (requireActivity() as AppCompatActivity).supportActionBar?.setDisplayShowTitleEnabled(false)\n    }\n\n    private fun initMapbox',
+              '    private fun initToolbar(binding: MainMenuBinding) {\n        binding.root.findViewById<View>(org.odk.collect.androidshared.R.id.appBarLayout)?.visibility = View.VISIBLE\n        val toolbar = binding.root.findViewById<Toolbar>(org.odk.collect.androidshared.R.id.toolbar)\n        toolbar.visibility = View.VISIBLE\n        (requireActivity() as AppCompatActivity).setSupportActionBar(toolbar)\n        (requireActivity() as AppCompatActivity).supportActionBar?.setDisplayShowTitleEnabled(false)\n    }\n\n    private fun initMapbox',
               s,
               flags=re.DOTALL,
           )
