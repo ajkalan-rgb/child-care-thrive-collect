@@ -39,7 +39,8 @@ jobs:
           echo "Branding folder contents:"
           find branding -maxdepth 2 -type f -print 2>/dev/null || true
           test -f branding/child_care_icon.png || (echo "ERROR: Missing branding/child_care_icon.png" && exit 1)
-          test -f branding/Child_Care_Thrive_KoboCollect_Background_1080x1920_SAFEZONE.png || (echo "ERROR: Missing safe-zone app background" && exit 1)
+          test -f branding/child_care_startup.png || (echo "ERROR: Missing branding/child_care_startup.png" && exit 1)
+          test -f branding/Updated_background.png || (echo "ERROR: Missing branding/Updated_background.png" && exit 1)
 
       - name: Clone KoboCollect source
         run: |
@@ -52,7 +53,7 @@ jobs:
           grep -n 'SERVER_URL =' upstream-collect/apply_child_care_thrive_branding.py
           cp -R branding upstream-collect/branding
           cd upstream-collect
-          cp branding/Child_Care_Thrive_KoboCollect_Background_1080x1920_SAFEZONE.png branding/child_care_splash.png
+          cp branding/Updated_background.png branding/child_care_splash.png
           python3 apply_child_care_thrive_branding.py
           python3 - <<'PY'
           from pathlib import Path
@@ -151,7 +152,7 @@ jobs:
           s = s.replace('put(AppConfigurationKeys.ADMIN, JSONObject())', 'put(AppConfigurationKeys.ADMIN, JSONObject().apply {\n                put(ProtectedProjectKeys.KEY_CHANGE_SERVER, false)\n                put(ProtectedProjectKeys.KEY_ANALYTICS, false)\n            })')
           generator.write_text(s)
           PY
-          python3 ../scripts/fix_child_care_ui_after_branding.py
+          python3 ../scripts/ui_patch.py
           grep -R "https://kf.kobotoolbox.org" collect_app/src/main/java collect_app/src/main/res -n && exit 1 || true
           echo "Generated/brand Android resources:"
           find collect_app/src/main/res -type f \( -name '*child_care*' -o -name 'ic_launcher*' \) | sort | head -200
