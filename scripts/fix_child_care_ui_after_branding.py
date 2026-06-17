@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import re
-import shutil
 
 ROOT = Path.cwd()
 
@@ -13,65 +12,37 @@ def write(path: str, text: str) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text, encoding='utf-8')
 
-# Use AJ's uploaded background asset when it exists in branding/.
-# This runs after the generic branding patch, so it overrides the previous safezone/splash drawable.
-branding_dir = ROOT / 'branding'
-drawable_dir = ROOT / 'collect_app/src/main/res/drawable'
-updated_background = None
-for pattern in ['updated_background*', 'updated-background*', 'updated background*']:
-    matches = sorted(
-        p for p in branding_dir.glob(pattern)
-        if p.is_file() and p.suffix.lower() in {'.png', '.jpg', '.jpeg', '.webp'}
-    )
-    if matches:
-        updated_background = matches[0]
-        break
-
-if updated_background:
-    for old in drawable_dir.glob('child_care_thrive_app_background_image.*'):
-        old.unlink()
-    suffix = '.jpg' if updated_background.suffix.lower() == '.jpeg' else updated_background.suffix.lower()
-    dst = drawable_dir / f'child_care_thrive_app_background_image{suffix}'
-    shutil.copyfile(updated_background, dst)
-    print(f'Using uploaded updated background asset: {updated_background} -> {dst}')
-else:
-    print('No branding/updated_background* asset found; keeping existing background drawable.')
-
-# 1) Stop using the full artwork as a startup/config background. It causes cropped logos and the duplicate ribbon.
-startup_bg = '''<?xml version="1.0" encoding="utf-8"?>
+WHITE_LAYER = '''<?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@android:color/white" />
 </layer-list>
 '''
-write('collect_app/src/main/res/drawable/child_care_thrive_startup_background.xml', startup_bg)
 
-# 2) Main menu uses the uploaded clean background directly. Do not add masking layers that can create white blocks.
-main_menu_bg = '''<?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-    <item>
-        <bitmap android:src="@drawable/child_care_thrive_app_background_image" android:gravity="fill" />
-    </item>
-</layer-list>
-'''
-write('collect_app/src/main/res/drawable/child_care_thrive_main_menu_background.xml', main_menu_bg)
+# Hard rollback: do not use the artwork/background asset on functional screens.
+# The supplied image is being scaled/cropped by Android layer-list bitmap rendering and is making the app look worse.
+write('collect_app/src/main/res/drawable/child_care_thrive_startup_background.xml', WHITE_LAYER)
+write('collect_app/src/main/res/drawable/child_care_thrive_main_menu_background.xml', WHITE_LAYER)
+write('collect_app/src/main/res/drawable/child_care_thrive_app_background.xml', WHITE_LAYER)
 
-# 3) Keep functional startup/config screen clean and readable.
+# Startup/configure screen: clean, plain white.
 first_layout = Path('collect_app/src/main/res/layout/first_launch_layout.xml')
 if first_layout.exists():
     s = read(str(first_layout))
     s = s.replace('@drawable/child_care_thrive_app_background', '@android:color/white')
     s = s.replace('@drawable/child_care_thrive_startup_background', '@android:color/white')
+    s = s.replace('@drawable/child_care_thrive_main_menu_background', '@android:color/white')
     write(str(first_layout), s)
 
-# 4) Main menu: background and button stack placement.
+# Main menu: plain white background, no logos/artwork. Centre the buttons visually in the screen.
 main_layout = Path('collect_app/src/main/res/layout/main_menu.xml')
 if main_layout.exists():
     s = read(str(main_layout))
-    s = s.replace('@drawable/child_care_thrive_app_background', '@drawable/child_care_thrive_main_menu_background')
-    s = re.sub(r'android:layout_marginTop="(?:@dimen/margin_extra_small|\d+dp)"', 'android:layout_marginTop="300dp"', s, count=1)
+    s = s.replace('@drawable/child_care_thrive_app_background', '@android:color/white')
+    s = s.replace('@drawable/child_care_thrive_main_menu_background', '@android:color/white')
+    s = re.sub(r'android:layout_marginTop="(?:@dimen/margin_extra_small|\d+dp)"', 'android:layout_marginTop="150dp"', s, count=1)
     write(str(main_layout), s)
 
+# Main menu buttons: keep full labels and readable contrast.
 for layout_name in ['main_menu_button.xml', 'start_new_from_button.xml']:
     p = Path('collect_app/src/main/res/layout') / layout_name
     if p.exists():
@@ -80,9 +51,10 @@ for layout_name in ['main_menu_button.xml', 'start_new_from_button.xml']:
         s = s.replace('android:layout_marginHorizontal="@dimen/margin_standard"', 'android:layout_marginHorizontal="24dp"')
         s = s.replace('android:layout_marginStart="24dp"', 'android:layout_marginStart="20dp"')
         s = s.replace('android:layout_marginEnd="24dp"', 'android:layout_marginEnd="20dp"')
+        s = s.replace('android:layout_marginVertical="2dp"', 'android:layout_marginVertical="6dp"')
         write(str(p), s)
 
-# 5) Project settings: only safe sections visible; restricted items kept as hidden placeholders so Kotlin lookups don't crash.
+# Project settings: only safe sections visible; restricted items kept as hidden placeholders so Kotlin lookups don't crash.
 project_preferences_xml = '''<?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -122,7 +94,7 @@ project_preferences_xml = '''<?xml version="1.0" encoding="utf-8"?>
 '''
 write('collect_app/src/main/res/xml/project_preferences.xml', project_preferences_xml)
 
-# 6) Access Control and protected user settings must not expose server/analytics controls.
+# Access Control and protected user settings must not expose server/analytics controls.
 write('collect_app/src/main/res/xml/access_control_preferences.xml', '''<?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" android:title="@string/access_control_section_title" />
 ''')
@@ -133,7 +105,7 @@ if user_access.exists():
         s = re.sub(r'\n\s*<CheckBoxPreference\b(?=[^>]*android:key="' + re.escape(key) + r'")[^>]*/>', '', s, flags=re.DOTALL)
     write(str(user_access), s)
 
-# 7) Harden the ProjectPreferencesFragment so restricted rows never come back after visibility-state refresh.
+# Harden the ProjectPreferencesFragment so restricted rows never come back after visibility-state refresh.
 prefs = Path('collect_app/src/main/java/org/odk/collect/android/preferences/screens/ProjectPreferencesFragment.kt')
 if prefs.exists():
     s = read(str(prefs))
@@ -174,4 +146,4 @@ if prefs.exists():
     )
     write(str(prefs), s)
 
-print('Applied final Child-Care Thrive UI cleanup: uploaded background asset, white startup/config, lower button stack, safe settings only.')
+print('Applied hard UI rollback: plain white startup/config/main menu, centred readable buttons, safe settings only.')
