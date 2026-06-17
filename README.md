@@ -8,6 +8,7 @@ Branding target:
 - Package ID: `za.co.childcarethrive.collect`
 - Branding line: **Child-Care Thrive powered by HIV Survivors & Partners Network**
 - Field engine: KoboCollect / ODK Collect open-source technology
+- App menu background: safe-zone Child-Care Thrive asset under `branding/`
 
 This repository is intentionally lightweight. The GitHub Actions workflow clones the official KoboCollect source, applies the Child-Care Thrive branding patch, and attempts to build a signed debug APK artifact.
 
