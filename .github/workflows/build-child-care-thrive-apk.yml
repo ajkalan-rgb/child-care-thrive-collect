@@ -65,11 +65,17 @@ jobs:
               xmlns:app="http://schemas.android.com/apk/res-auto">
               <item
                   android:id="@+id/projects"
-                  android:icon="@drawable/ic_outline_phonelink_setup_accent_24"
+                  android:icon="@drawable/ic_outline_settings_accent_24"
                   android:title="@string/project_settings"
-                  app:showAsAction="never" />
+                  app:showAsAction="always" />
           </menu>
           ''')
+
+          main_layout = Path('collect_app/src/main/res/layout/main_menu.xml')
+          s = main_layout.read_text()
+          s = s.replace('android:layout_marginTop="132dp"', 'android:layout_marginTop="180dp"')
+          s = s.replace('android:layout_marginTop="@dimen/margin_extra_small"', 'android:layout_marginTop="180dp"', 1)
+          main_layout.write_text(s)
 
           mm = Path('collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuFragment.kt')
           s = mm.read_text()
@@ -78,7 +84,19 @@ jobs:
           s = s.replace('requireActivity().title = project.name', 'requireActivity().title = ""')
           s = re.sub(
               r'    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateOptionsMenu',
-              '    override fun onPrepareOptionsMenu(menu: Menu) {\n        val settingsItem = menu.findItem(org.odk.collect.android.R.id.projects)\n        settingsItem.isVisible = false\n    }\n\n    override fun onCreateOptionsMenu',
+              '    override fun onPrepareOptionsMenu(menu: Menu) {\n        val settingsItem = menu.findItem(org.odk.collect.android.R.id.projects)\n        settingsItem.isVisible = true\n        settingsItem.title = getString(org.odk.collect.strings.R.string.project_settings)\n    }\n\n    override fun onCreateOptionsMenu',
+              s,
+              flags=re.DOTALL,
+          )
+          s = re.sub(
+              r'        if \(item.itemId == org\.odk\.collect\.android\.R\.id\.projects\) \{.*?\n        \}\n\n        return super\.onOptionsItemSelected\(item\)',
+              '        if (item.itemId == org.odk.collect.android.R.id.projects) {\n            startActivity(Intent(requireContext(), ProjectPreferencesActivity::class.java))\n            return true\n        }\n\n        return super.onOptionsItemSelected(item)',
+              s,
+              flags=re.DOTALL,
+          )
+          s = re.sub(
+              r'    private fun initToolbar\(binding: MainMenuBinding\) \{.*?\n    \}\n\n    private fun initMapbox',
+              '    private fun initToolbar(binding: MainMenuBinding) {\n        binding.root.findViewById<View>(org.odk.collect.androidshared.R.id.appBarLayout)?.visibility = View.VISIBLE\n        val toolbar = binding.root.findViewById<Toolbar>(org.odk.collect.androidshared.R.id.toolbar)\n        (requireActivity() as AppCompatActivity).setSupportActionBar(toolbar)\n        (requireActivity() as AppCompatActivity).supportActionBar?.setDisplayShowTitleEnabled(false)\n    }\n\n    private fun initMapbox',
               s,
               flags=re.DOTALL,
           )
@@ -92,7 +110,19 @@ jobs:
             EXPERIMENTAL_PREFERENCE_KEY,
             ACCESS_CONTROL_PREFERENCE_KEY,
             UNLOCK_PROTECTED_SETTINGS_PREFERENCE_KEY,''')
+          s = re.sub(
+              r'    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateView',
+              '    override fun onPrepareOptionsMenu(menu: Menu) {\n        menu.findItem(R.id.menu_locked).isVisible = false\n        menu.findItem(R.id.menu_unlocked).isVisible = false\n    }\n\n    override fun onCreateView',
+              s,
+              flags=re.DOTALL,
+          )
           prefs.write_text(s)
+
+          access_xml = Path('collect_app/src/main/res/xml/access_control_preferences.xml')
+          access_xml.write_text('''<?xml version="1.0" encoding="utf-8"?>
+          <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+              android:title="@string/access_control_section_title" />
+          ''')
 
           user_settings_xml = Path('collect_app/src/main/res/xml/user_settings_access_preferences.xml')
           s = user_settings_xml.read_text()
