@@ -151,6 +151,7 @@ jobs:
           s = s.replace('put(AppConfigurationKeys.ADMIN, JSONObject())', 'put(AppConfigurationKeys.ADMIN, JSONObject().apply {\n                put(ProtectedProjectKeys.KEY_CHANGE_SERVER, false)\n                put(ProtectedProjectKeys.KEY_ANALYTICS, false)\n            })')
           generator.write_text(s)
           PY
+          python3 ../scripts/fix_child_care_ui_after_branding.py
           grep -R "https://kf.kobotoolbox.org" collect_app/src/main/java collect_app/src/main/res -n && exit 1 || true
           echo "Generated/brand Android resources:"
           find collect_app/src/main/res -type f \( -name '*child_care*' -o -name 'ic_launcher*' \) | sort | head -200
