@@ -39,7 +39,7 @@ jobs:
           echo "Branding folder contents:"
           find branding -maxdepth 2 -type f -print 2>/dev/null || true
           test -f branding/child_care_icon.png || (echo "ERROR: Missing branding/child_care_icon.png" && exit 1)
-          test -f branding/child_care_splash.png || (echo "ERROR: Missing branding/child_care_splash.png" && exit 1)
+          test -f branding/Child_Care_Thrive_KoboCollect_Background_1080x1920_SAFEZONE.png || (echo "ERROR: Missing safe-zone app background" && exit 1)
 
       - name: Clone KoboCollect source
         run: |
@@ -52,13 +52,13 @@ jobs:
           grep -n 'SERVER_URL =' upstream-collect/apply_child_care_thrive_branding.py
           cp -R branding upstream-collect/branding
           cd upstream-collect
+          cp branding/Child_Care_Thrive_KoboCollect_Background_1080x1920_SAFEZONE.png branding/child_care_splash.png
           python3 apply_child_care_thrive_branding.py
           python3 -c "from pathlib import Path; p=Path('collect_app/src/main/java/org/odk/collect/android/projects/ManualProjectCreatorDialog.kt'); s=p.read_text(); s=s.replace('if (!Validator.isUrlValid(binding.urlInputText.text?.trim().toString())) {', 'if (false) {'); s=s.replace('binding.urlInputText.text?.trim().toString(),\n                binding.usernameInputText', '\"https://kc.kobotoolbox.org/\",\n                binding.usernameInputText'); p.write_text(s)"
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          # Main menu: expose a safe Settings button, not the project/server selector.
           menu = Path('collect_app/src/main/res/menu/main_menu.xml')
           menu.write_text('''<?xml version="1.0" encoding="utf-8"?>
           <menu xmlns:android="http://schemas.android.com/apk/res/android"
@@ -67,7 +67,7 @@ jobs:
                   android:id="@+id/projects"
                   android:icon="@drawable/ic_outline_phonelink_setup_accent_24"
                   android:title="@string/project_settings"
-                  app:showAsAction="always" />
+                  app:showAsAction="never" />
           </menu>
           ''')
 
@@ -78,42 +78,28 @@ jobs:
           s = s.replace('requireActivity().title = project.name', 'requireActivity().title = ""')
           s = re.sub(
               r'    override fun onPrepareOptionsMenu\(menu: Menu\) \{.*?\n    \}\n\n    override fun onCreateOptionsMenu',
-              '    override fun onPrepareOptionsMenu(menu: Menu) {\n        val settingsItem = menu.findItem(org.odk.collect.android.R.id.projects)\n        settingsItem.isVisible = true\n        settingsItem.title = getString(org.odk.collect.strings.R.string.project_settings)\n    }\n\n    override fun onCreateOptionsMenu',
-              s,
-              flags=re.DOTALL,
-          )
-          s = re.sub(
-              r'        if \(item.itemId == org\.odk\.collect\.android\.R\.id\.projects\) \{.*?\n        \}\n\n        return super\.onOptionsItemSelected\(item\)',
-              '        if (item.itemId == org.odk.collect.android.R.id.projects) {\n            startActivity(Intent(requireContext(), ProjectPreferencesActivity::class.java))\n            return true\n        }\n\n        return super.onOptionsItemSelected(item)',
-              s,
-              flags=re.DOTALL,
-          )
-          s = re.sub(
-              r'    private fun initToolbar\(binding: MainMenuBinding\) \{.*?\n    \}\n\n    private fun initMapbox',
-              '    private fun initToolbar(binding: MainMenuBinding) {\n        val toolbar = binding.root.findViewById<Toolbar>(org.odk.collect.androidshared.R.id.toolbar)\n        (requireActivity() as AppCompatActivity).setSupportActionBar(toolbar)\n        (requireActivity() as AppCompatActivity).supportActionBar?.setDisplayShowTitleEnabled(false)\n    }\n\n    private fun initMapbox',
+              '    override fun onPrepareOptionsMenu(menu: Menu) {\n        val settingsItem = menu.findItem(org.odk.collect.android.R.id.projects)\n        settingsItem.isVisible = false\n    }\n\n    override fun onCreateOptionsMenu',
               s,
               flags=re.DOTALL,
           )
           mm.write_text(s)
 
-          # Project settings: expose app preferences but never expose server, protected, experimental, or identity.
           prefs = Path('collect_app/src/main/java/org/odk/collect/android/preferences/screens/ProjectPreferencesFragment.kt')
           s = prefs.read_text()
           s = s.replace('''            PROTOCOL_PREFERENCE_KEY,
             UNLOCK_PROTECTED_SETTINGS_PREFERENCE_KEY,''', '''            PROTOCOL_PREFERENCE_KEY,
             USER_AND_DEVICE_IDENTITY_PREFERENCE_KEY,
             EXPERIMENTAL_PREFERENCE_KEY,
+            ACCESS_CONTROL_PREFERENCE_KEY,
             UNLOCK_PROTECTED_SETTINGS_PREFERENCE_KEY,''')
           prefs.write_text(s)
 
-          # Protected > User Settings screen: never show server or anonymous analytics toggles.
           user_settings_xml = Path('collect_app/src/main/res/xml/user_settings_access_preferences.xml')
           s = user_settings_xml.read_text()
           for key in ['change_server', 'analytics']:
               s = re.sub(r'\n\s*<CheckBoxPreference\b(?=[^>]*android:key="' + re.escape(key) + r'")[^>]*/>', '', s, flags=re.DOTALL)
           user_settings_xml.write_text(s)
 
-          # Defaults: server and analytics are protected/disabled, and validation is deferred until finalization.
           defaults = Path('collect_app/src/main/java/org/odk/collect/android/preferences/Defaults.kt')
           s = defaults.read_text()
           s = s.replace('hashMap[ProjectKeys.KEY_CONSTRAINT_BEHAVIOR] = ProjectKeys.CONSTRAINT_BEHAVIOR_ON_SWIPE', 'hashMap[ProjectKeys.KEY_CONSTRAINT_BEHAVIOR] = "on_finalize"')
@@ -128,7 +114,6 @@ jobs:
             return defaults''')
           defaults.write_text(s)
 
-          # Manual project setup: hard-code safe settings into the generated configuration for new projects.
           generator = Path('collect_app/src/main/java/org/odk/collect/android/configure/qr/AppConfigurationGenerator.kt')
           s = generator.read_text()
           if 'ProjectKeys.KEY_CONSTRAINT_BEHAVIOR' not in s.split('return JSONObject().apply')[0]:
