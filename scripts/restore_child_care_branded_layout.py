@@ -75,4 +75,58 @@ for name in ["main_menu_button.xml", "start_new_from_button.xml"]:
         s = s.replace('android:layout_marginHorizontal="@dimen/margin_standard"', 'android:layout_marginHorizontal="24dp"')
         p.write_text(s, encoding="utf-8")
 
-print(f"Child-Care Thrive layout applied: first-launch/manual login restored; first-launch image uses {startup_drawable}; main menu unchanged.")
+# If an APK is installed over an older development build, a current project can already exist with no saved username/password.
+# In that case KoboCollect skips FirstLaunchActivity and lands on MainMenuActivity. Force it back to setup until credentials exist.
+main_activity = root / "collect_app/src/main/java/org/odk/collect/android/mainmenu/MainMenuActivity.kt"
+if main_activity.exists():
+    s = main_activity.read_text(encoding="utf-8")
+    if "import org.odk.collect.settings.keys.ProjectKeys" not in s:
+        s = s.replace("import org.odk.collect.settings.SettingsProvider\n", "import org.odk.collect.settings.SettingsProvider\nimport org.odk.collect.settings.keys.ProjectKeys\n")
+    old = """        if (!currentProjectViewModel.hasCurrentProject()) {
+            super.onCreate(null)
+            ActivityUtils.startActivityAndCloseAllOthers(this, FirstLaunchActivity::class.java)
+            return
+        } else {
+"""
+    new = """        if (!currentProjectViewModel.hasCurrentProject()) {
+            super.onCreate(null)
+            ActivityUtils.startActivityAndCloseAllOthers(this, FirstLaunchActivity::class.java)
+            return
+        } else if (!hasServerCredentials()) {
+            super.onCreate(null)
+            ActivityUtils.startActivityAndCloseAllOthers(this, FirstLaunchActivity::class.java)
+            return
+        } else {
+"""
+    s = s.replace(old, new)
+    if "private fun hasServerCredentials()" not in s:
+        s = s.replace("\n    private fun initSplashScreen() {", """
+    private fun hasServerCredentials(): Boolean {
+        val settings = settingsProvider.getUnprotectedSettings()
+        return !settings.getString(ProjectKeys.KEY_USERNAME).isNullOrBlank() &&
+            !settings.getString(ProjectKeys.KEY_PASSWORD).isNullOrBlank()
+    }
+
+    private fun initSplashScreen() {""")
+    main_activity.write_text(s, encoding="utf-8")
+
+first_activity = root / "collect_app/src/main/java/org/odk/collect/android/activities/FirstLaunchActivity.kt"
+if first_activity.exists():
+    s = first_activity.read_text(encoding="utf-8")
+    if "import org.odk.collect.settings.keys.ProjectKeys" not in s:
+        s = s.replace("import org.odk.collect.settings.SettingsProvider\n", "import org.odk.collect.settings.SettingsProvider\nimport org.odk.collect.settings.keys.ProjectKeys\n")
+    s = s.replace("if (currentProject != null) {", "if (currentProject != null && hasServerCredentials()) {")
+    if "private fun hasServerCredentials()" not in s:
+        s = s.replace("\n}\n\nprivate class FirstLaunchViewModel", """
+
+    private fun hasServerCredentials(): Boolean {
+        val settings = settingsProvider.getUnprotectedSettings()
+        return !settings.getString(ProjectKeys.KEY_USERNAME).isNullOrBlank() &&
+            !settings.getString(ProjectKeys.KEY_PASSWORD).isNullOrBlank()
+    }
+}
+
+private class FirstLaunchViewModel""")
+    first_activity.write_text(s, encoding="utf-8")
+
+print(f"Child-Care Thrive layout applied: first-launch/manual login restored; first-launch image uses {startup_drawable}; main menu redirects to first launch until username/password exist.")
