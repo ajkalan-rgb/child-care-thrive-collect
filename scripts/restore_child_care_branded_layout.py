@@ -21,7 +21,7 @@ if branding.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(asset, target)
             startup_drawable = "@drawable/child_care_thrive_kobocollect"
-            print(f"Startup screen asset: {asset} -> {target}")
+            print(f"First-launch image asset: {asset} -> {target}")
             break
 
 main_menu = '''<?xml version="1.0" encoding="utf-8"?>
@@ -48,19 +48,21 @@ main_menu = '''<?xml version="1.0" encoding="utf-8"?>
 '''
 write("collect_app/src/main/res/layout/main_menu.xml", main_menu)
 
+# Restore first-launch/manual-login screen structure. Only the logo image changes to child_care_kobocollect; login/manual flow remains intact.
 first_launch = f'''<?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/white">
-    <ImageView android:id="@+id/child_care_startup_background" android:layout_width="0dp" android:layout_height="0dp" android:contentDescription="@null" android:importantForAccessibility="no" android:scaleType="fitCenter" android:src="{startup_drawable}" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" />
-    <androidx.constraintlayout.widget.ConstraintLayout android:id="@+id/center" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginHorizontal="32dp" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" app:layout_constraintVertical_bias="0.54">
-        <ImageView android:id="@+id/logo" android:layout_width="0dp" android:layout_height="0dp" android:contentDescription="@string/collect_app_name" android:visibility="gone" />
-        <TextView android:id="@+id/tagline" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Configure project" android:textAppearance="?textAppearanceHeadline4" android:textColor="@color/child_care_text_primary" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" />
-        <org.odk.collect.androidshared.ui.multiclicksafe.MultiClickSafeMaterialButton android:id="@+id/configure_via_qr_button" style="?materialButtonIconStyle" android:layout_width="0dp" android:layout_height="0dp" android:text="@string/configure_with_qr_code" android:visibility="gone" app:icon="@drawable/ic_baseline_qr_code_scanner_24" />
-        <org.odk.collect.androidshared.ui.multiclicksafe.MultiClickSafeMaterialButton android:id="@+id/configure_manually_button" style="?materialButtonOutlinedIconStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginTop="40dp" android:text="@string/configure_manually" app:icon="@drawable/ic_outline_edit_24" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toBottomOf="@id/tagline" />
-        <androidx.constraintlayout.widget.Barrier android:id="@+id/barrierEnd" android:layout_width="0dp" android:layout_height="0dp" app:barrierDirection="end" app:constraint_referenced_ids="configure_via_qr_button,configure_manually_button" />
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true" android:background="@android:color/white">
+    <androidx.constraintlayout.widget.ConstraintLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+        <androidx.constraintlayout.widget.ConstraintLayout android:id="@+id/center" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginHorizontal="@dimen/margin_large" android:paddingHorizontal="@dimen/margin_large" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" app:layout_constraintVertical_bias="0.5">
+            <ImageView android:id="@+id/logo" android:layout_width="160dp" android:layout_height="wrap_content" android:adjustViewBounds="true" android:contentDescription="@string/collect_app_name" android:src="{startup_drawable}" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintTop_toTopOf="parent" />
+            <TextView android:id="@+id/tagline" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="@dimen/margin_extra_small" android:text="Configure project" android:textAppearance="?textAppearanceHeadline4" android:textColor="@color/child_care_text_primary" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toBottomOf="@id/logo" />
+            <org.odk.collect.androidshared.ui.multiclicksafe.MultiClickSafeMaterialButton android:id="@+id/configure_via_qr_button" style="?materialButtonIconStyle" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" android:text="@string/configure_with_qr_code" app:icon="@drawable/ic_baseline_qr_code_scanner_24" app:layout_constraintTop_toBottomOf="@id/tagline" app:layout_constraintEnd_toEndOf="@id/barrierEnd" app:layout_constraintStart_toStartOf="parent" />
+            <org.odk.collect.androidshared.ui.multiclicksafe.MultiClickSafeMaterialButton android:id="@+id/configure_manually_button" style="?materialButtonOutlinedIconStyle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginTop="@dimen/margin_standard" android:text="@string/configure_manually" app:icon="@drawable/ic_outline_edit_24" app:layout_constraintEnd_toEndOf="@id/barrierEnd" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toBottomOf="@id/tagline" app:layout_constraintWidth_min="wrap" />
+            <androidx.constraintlayout.widget.Barrier android:id="@+id/barrierEnd" android:layout_width="0dp" android:layout_height="0dp" app:barrierDirection="end" app:constraint_referenced_ids="configure_via_qr_button,configure_manually_button" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" />
+        </androidx.constraintlayout.widget.ConstraintLayout>
+        <TextView android:id="@+id/app_name" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+        <TextView android:id="@+id/dont_have_server" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
     </androidx.constraintlayout.widget.ConstraintLayout>
-    <TextView android:id="@+id/app_name" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" tools:text="Child-Care Thrive" />
-    <TextView android:id="@+id/dont_have_server" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
-</androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>
 '''
 write("collect_app/src/main/res/layout/first_launch_layout.xml", first_launch)
 
@@ -73,4 +75,4 @@ for name in ["main_menu_button.xml", "start_new_from_button.xml"]:
         s = s.replace('android:layout_marginHorizontal="@dimen/margin_standard"', 'android:layout_marginHorizontal="24dp"')
         p.write_text(s, encoding="utf-8")
 
-print(f"Child-Care Thrive branded layout applied: startup uses {startup_drawable}; main menu uses Updated_background; Start new form begins just below the roof apex.")
+print(f"Child-Care Thrive layout applied: first-launch/manual login restored; first-launch image uses {startup_drawable}; main menu unchanged.")
