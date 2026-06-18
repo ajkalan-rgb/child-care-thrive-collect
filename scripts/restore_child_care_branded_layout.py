@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import shutil
 
 root = Path.cwd()
 
@@ -7,6 +8,21 @@ def write(path: str, text: str) -> None:
     p = root / path
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text, encoding="utf-8")
+
+startup_drawable = "@drawable/child_care_thrive_startup"
+branding = root / "branding"
+drawable = root / "collect_app/src/main/res/drawable"
+if branding.exists():
+    for asset in sorted(branding.iterdir()):
+        name = asset.name.lower().replace("-", "_").replace(" ", "_")
+        if asset.is_file() and name.startswith("child_care_kobocollect") and asset.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            ext = ".jpg" if asset.suffix.lower() == ".jpeg" else asset.suffix.lower()
+            target = drawable / f"child_care_thrive_kobocollect{ext}"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(asset, target)
+            startup_drawable = "@drawable/child_care_thrive_kobocollect"
+            print(f"Startup screen asset: {asset} -> {target}")
+            break
 
 main_menu = '''<?xml version="1.0" encoding="utf-8"?>
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/white">
@@ -32,9 +48,9 @@ main_menu = '''<?xml version="1.0" encoding="utf-8"?>
 '''
 write("collect_app/src/main/res/layout/main_menu.xml", main_menu)
 
-first_launch = '''<?xml version="1.0" encoding="utf-8"?>
+first_launch = f'''<?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:tools="http://schemas.android.com/tools" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/white">
-    <ImageView android:id="@+id/child_care_startup_background" android:layout_width="0dp" android:layout_height="0dp" android:contentDescription="@null" android:importantForAccessibility="no" android:scaleType="fitCenter" android:src="@drawable/child_care_thrive_startup" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" />
+    <ImageView android:id="@+id/child_care_startup_background" android:layout_width="0dp" android:layout_height="0dp" android:contentDescription="@null" android:importantForAccessibility="no" android:scaleType="fitCenter" android:src="{startup_drawable}" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" />
     <androidx.constraintlayout.widget.ConstraintLayout android:id="@+id/center" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginHorizontal="32dp" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" app:layout_constraintVertical_bias="0.54">
         <ImageView android:id="@+id/logo" android:layout_width="0dp" android:layout_height="0dp" android:contentDescription="@string/collect_app_name" android:visibility="gone" />
         <TextView android:id="@+id/tagline" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Configure project" android:textAppearance="?textAppearanceHeadline4" android:textColor="@color/child_care_text_primary" app:layout_constraintEnd_toEndOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintTop_toTopOf="parent" />
@@ -57,4 +73,4 @@ for name in ["main_menu_button.xml", "start_new_from_button.xml"]:
         s = s.replace('android:layout_marginHorizontal="@dimen/margin_standard"', 'android:layout_marginHorizontal="24dp"')
         p.write_text(s, encoding="utf-8")
 
-print("Child-Care Thrive branded layout applied: startup uses child_care_startup; main menu uses Updated_background; Start new form begins just below the roof apex.")
+print(f"Child-Care Thrive branded layout applied: startup uses {startup_drawable}; main menu uses Updated_background; Start new form begins just below the roof apex.")
