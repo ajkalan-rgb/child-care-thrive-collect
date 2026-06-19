@@ -154,6 +154,7 @@ jobs:
           PY
           python3 ../scripts/ui_patch.py
           python3 ../scripts/force_first_launch_startup.py
+          python3 ../scripts/use_updated_background_startup.py
           grep -R "https://kf.kobotoolbox.org" collect_app/src/main/java collect_app/src/main/res -n && exit 1 || true
           echo "Generated/brand Android resources:"
           find collect_app/src/main/res -type f \( -name '*child_care*' -o -name 'ic_launcher*' \) | sort | head -200
