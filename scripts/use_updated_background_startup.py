@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Compatibility entry point for the new-only first-launch screen patch."""
+"""Apply the approved Child-Care Thrive startup and main-menu compositions."""
 from pathlib import Path
 import runpy
 
-runpy.run_path(
-    str(Path(__file__).with_name("apply_new_only_startup_screen.py")),
-    run_name="__main__",
-)
+scripts = Path(__file__).parent
+for script in (
+    "apply_new_only_startup_screen.py",
+    "apply_new_background_main_menu.py",
+):
+    runpy.run_path(str(scripts / script), run_name="__main__")
