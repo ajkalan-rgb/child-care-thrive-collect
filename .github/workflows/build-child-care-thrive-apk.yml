@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - fix/samsung-datepicker-contrast
 
 permissions:
   contents: read
@@ -55,6 +56,8 @@ jobs:
           cd upstream-collect
           cp branding/Updated_background.png branding/child_care_splash.png
           python3 apply_child_care_thrive_branding.py
+          python3 ../scripts/fix_samsung_date_picker.py
+          grep -A6 'int getCalendarDatePickerDialogTheme' collect_app/src/main/java/org/odk/collect/android/utilities/ThemeUtils.java
           python3 - <<'PY'
           from pathlib import Path
           import re
